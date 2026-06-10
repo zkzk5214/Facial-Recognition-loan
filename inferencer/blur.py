@@ -1,4 +1,3 @@
-import cv2
 import onnxruntime
 import numpy as np
 import torchvision.transforms as T
@@ -12,40 +11,28 @@ def softmax(x):
 class BlurDetection:
     def __init__(self, weights):
         self.model = onnxruntime.InferenceSession(weights, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-
-    def featurize(self, images, transform):
-        data = transform(images).unsqueeze(0).cpu().numpy()
+        self.transform = T.Compose([
+            T.Resize((320, 240)),
+            T.ToTensor(),
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+            ])
+     
+    def detect(self, img):
+        data = self.transform(Image.fromarray(img)).unsqueeze(0).cpu().numpy()
         inputs = {self.model.get_inputs()[0].name: data}
         feature = self.model.run(None, inputs)[0][0]
         return softmax(feature)[0]
 
-    def detect(self, img):
-        transform = T.Compose([
-            T.Resize((320, 240)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.5, 0.5, 0.5],
-                        std=[0.5, 0.5, 0.5]),
-        ])
-        img = Image.fromarray(img)
-        features = self.featurize(img, transform)
-        return features
-
 
 if __name__ == '__main__':
+    import cv2
+
     def detect_blur(img, thre=0.75, return_value=False):
         """Detect if the image is blurry."""
 
         features = bd.detect(img)
-
-        if features <= thre:
-            result = 0  # blur
-        else:
-            result = 1  # clear
-
-        if return_value:
-            return result, features
-        else:
-            return result
+        result = int(features > thre)
+        return (result, features) if return_value else result
     
     bd = BlurDetection('./resources/blur_0727.onnx')
 

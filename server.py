@@ -20,9 +20,9 @@ safe_hostname = re.sub(r'[^a-zA-Z0-9\-]', '_', hostname)
 LOG_FILENAME = f'/mnt/pvc/pvc-ph-irisk-id9743-vol723550-stg/log/hf_xy/info_{safe_hostname}.log'
 
 try:
-    logger = logging.LoggerGenerator(LOG_FILENAME, 'server_logging').get_logger()
-except Exception as e:
-    print(f"logger init failed: {e}")
+    logger = logging.create_logger(LOG_FILENAME, "server_logging")
+except Exception:
+    logger = logging.create_logger("./log/server.log", "server_logging")
 
 
 from inferencer.register import face_register_, get_topk, head_detection_
