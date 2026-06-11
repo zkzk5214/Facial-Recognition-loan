@@ -11,46 +11,43 @@ from inferencer.yolo_detection import YoloDetection
 
 class Detector:
     def __init__(self, weights, sp):
-        self.sp = dlib.shape_predictor(sp)  # face keypoint 68
+        self.sp = dlib.shape_predictor(sp)  # shape_predictor_68_face_landmarks.dat
         self.yolo_detect = YoloDetection(weights)
 
-    def dlib_wrap(self, pic, x1, y1, x2, y2, size):
-        img = cv2.cvtColor(pic, cv2.COLOR_BGR2RGB)
-        faces = dlib.full_object_detections()
-        rec = dlib.rectangle(x1, y1, x2, y2)  # rectangle
-        faces.append(self.sp(img, rec))
-        # Face Align
-        image = dlib.get_face_chip(img, (faces[0]), size)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        return image
+    def dlib_wrap(self, img_rgb, x1, y1, x2, y2, size):
+        """Wrap dlib's face chip extraction."""
+        rec = dlib.rectangle(x1, y1, x2, y2)
+        shape = self.sp(img_rgb, rec)
+        image = dlib.get_face_chip(img_rgb, shape, size)
+        return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    def get_face_capture(self, pic, size=112):  # 112 for TF-face
-        # res = self.yolo_detect.run_detect(pic)  # [[x1,y1,x2,y2, conf, cls]...] cls:face,eyes,moth
-        res = self.yolo_detect.run_detect(pic.copy())
+    def get_face_capture(self, pic, size=112):
+        """Detect faces in the input image and return face chips and their confidence scores."""
+        res = self.yolo_detect.run_detect(pic)
 
-        if len(res) <= 0:
-            return [], []  # No BBX
-
-        if len(res[res[:, 5] == 0]) == 0:
-            return [], []  # No face(cls=0)
-
-        face_conf = [int(i * 100) for i in res[res[:, 5] == 0][:, 4]]  # pick face conf
-        face_chip_list = []
+        if res.size == 0:
+            return [], []
+        # Filter out detected faces (class 0) and check if any faces are detected
+        faces = res[res[:, 5] == 0]
+        if len(faces) == 0:
+            return [], []
 
         face_dict = defaultdict(list)
         for i in res:
-            face_dict[str(int(i[-1]))].append(list(i[:-2]))  # {cls: [x1,y1,x2,y2], [x1,y1,x2,y2]}
+            face_dict[int(i[-1])].append(list(i[:-2]))
 
-        for ii, boo_face in enumerate(complete_face(face_dict)):  # boo_face: True or False
-            # bbx of face
-            x1, y1 = int(face_dict['0'][ii][0]), int(face_dict['0'][ii][1])
-            x2, y2 = int(face_dict['0'][ii][2]), int(face_dict['0'][ii][3])
+        img_rgb = cv2.cvtColor(pic, cv2.COLOR_BGR2RGB)
+        face_chip_list = []
+        face_conf = []
+
+        for ii, boo_face in enumerate(complete_face(face_dict)):
             if not boo_face:
-                continue  # skip incomplete face
-            else:
-                image = self.dlib_wrap(pic, x1, y1, x2, y2, size)
-                face_chip_list.append(image)
-        
+                continue
+            x1, y1 = int(face_dict[0][ii][0]), int(face_dict[0][ii][1])
+            x2, y2 = int(face_dict[0][ii][2]), int(face_dict[0][ii][3])
+            face_chip_list.append(self.dlib_wrap(img_rgb, x1, y1, x2, y2, size))
+            face_conf.append(int(faces[ii][4] * 100))
+
         return face_chip_list, face_conf
 
 if __name__ == '__main__':
@@ -61,12 +58,13 @@ if __name__ == '__main__':
     
     img = cv2.imread('./unit_test/test_img/register_test.jpg', cv2.IMREAD_COLOR)
 
+    if img.shape[0] > 320:
+        resize_high, resize_width = 320, int(img.shape[1] * 320 / img.shape[0])
+        img = cv2.resize(img, (resize_width, resize_high))
+
     start = time.time()
     for _ in range(10):
-        if img.shape[0] > 320:
-            resize_high, resize_width = 320, int(img.shape[1] * 320 / img.shape[0])
-            img = cv2.resize(img, (resize_width, resize_high))
         face_chip_list, face_conf = det.get_face_capture(img)
         print(len(face_chip_list), face_conf)
-    time_cost = str(int((time.time() - start))/10)
+    time_cost = str(int((time.time() - start)) / 10)
     print(f'Average time cost: {time_cost} seconds')

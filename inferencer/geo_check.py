@@ -60,11 +60,11 @@ def check_intersection(box1, box2):
 
 def complete_face(face_dict):
     boo_faces = []
-    for face in face_dict['0']:  # 0 is face
-        eye = check_in_face(face_dict['1'] + face_dict['2'], face)
+    for face in face_dict[0]:
+        eye = check_in_face(face_dict[1] + face_dict[2], face)
         eye = del_dup(eye)
 
-        mouth = check_in_face(face_dict['3'], face)
+        mouth = check_in_face(face_dict[3], face)
         if len(mouth) >= 2:
             mouth = del_dup(mouth)
 
@@ -92,10 +92,10 @@ if __name__ == '__main__':
     from collections import defaultdict
 
     face_Dict = defaultdict(list,
-                            {'0': [[148.0, 165.0, 363.0, 438.0]],
-                             '3': [[206.0, 344.0, 284.0, 386.0]],
-                             '2': [[176.0, 258.0, 228.0, 292.0]],
-                             '1': [[259.0, 257.0, 317.0, 290.0]]})
+                            {0: [[148.0, 165.0, 363.0, 438.0]],
+                             3: [[206.0, 344.0, 284.0, 386.0]],
+                             2: [[176.0, 258.0, 228.0, 292.0]],
+                             1: [[259.0, 257.0, 317.0, 290.0]]})
     for ii, boo_face in enumerate(complete_face(face_Dict)):  # True or False
         print(boo_face)
         
