@@ -5,7 +5,7 @@ import cv2
 from collections import defaultdict
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from inferencer.geo_check import complete_face
+from inferencer.face_validation import complete_face
 from inferencer.yolo_detection import YoloDetection
 
 
@@ -40,13 +40,13 @@ class Detector:
         face_chip_list = []
         face_conf = []
 
-        for ii, boo_face in enumerate(complete_face(face_dict)):
-            if not boo_face:
+        for idx, is_complete in enumerate(complete_face(face_dict)):
+            if not is_complete:
                 continue
-            x1, y1 = int(face_dict[0][ii][0]), int(face_dict[0][ii][1])
-            x2, y2 = int(face_dict[0][ii][2]), int(face_dict[0][ii][3])
+            x1, y1 = int(face_dict[0][idx][0]), int(face_dict[0][idx][1])
+            x2, y2 = int(face_dict[0][idx][2]), int(face_dict[0][idx][3])
             face_chip_list.append(self.dlib_wrap(img_rgb, x1, y1, x2, y2, size))
-            face_conf.append(int(faces[ii][4] * 100))
+            face_conf.append(int(faces[idx][4] * 100))
 
         return face_chip_list, face_conf
 

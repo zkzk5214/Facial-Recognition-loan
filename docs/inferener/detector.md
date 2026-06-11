@@ -21,7 +21,7 @@
 | `dlib` | 68-point facial landmark prediction and face alignment (`get_face_chip`) |
 | `cv2` (OpenCV) | Color space conversion (BGR↔RGB) and image I/O |
 | `collections.defaultdict` | Group detections by class label |
-| `inferencer.geo_check.complete_face` | Validate facial feature completeness |
+| `inferencer.face_validation.complete_face` | Validate facial feature completeness |
 | `inferencer.yolo_detection.YoloDetection` | YOLO-based object detection |
 
 ### Design Patterns Applied
@@ -115,7 +115,7 @@ Input (np.ndarray BGR image)
 
 ### Common Refactoring Pitfalls
 
-- **Changing `face_dict` key type**: Must stay consistent with `geo_check.complete_face` which expects int keys `0, 1, 2, 3`
+- **Changing `face_dict` key type**: Must stay consistent with `face_validation.complete_face` which expects int keys `0, 1, 2, 3`
 - **Removing `complete_face` validation**: Will allow incomplete/occluded faces through, degrading recognition accuracy
 - **Passing BGR to `dlib_wrap`**: The method now expects pre-converted RGB input; passing BGR will produce wrong landmarks and misaligned output
 - **Confidence indexing**: `face_conf` uses `faces[ii]` to index; if detection order changes or filtering is modified, ensure index alignment is maintained
