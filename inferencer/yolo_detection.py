@@ -19,7 +19,7 @@ class YoloDetection:
         self.imgsz = (640, 640)
 
     def letterbox(self, img, color=(114, 114, 114)):
-        # Resize and pad image while meeting stride-multiple constraints
+        """Resize and pad image while meeting stride-multiple constraints"""
         shape = img.shape[:2]  # [height, width]
 
         # Scale ratio (new / old)
@@ -46,6 +46,7 @@ class YoloDetection:
         return im
 
     def run_detect(self, input_image, conf_thres=0.3, iou_thres=0.45, max_det=1000, agnostic_nms=False):
+        """Run inference on an input image and return detected bounding boxes."""
         im = self.letterbox(input_image)
 
         im = im[None].astype(np.float32) / 255
