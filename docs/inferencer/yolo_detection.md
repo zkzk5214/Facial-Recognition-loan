@@ -22,7 +22,7 @@
 | `torch` | Tensor operations for NMS and result aggregation |
 | `onnxruntime` | ONNX model inference engine |
 | `numpy` | Array manipulation and type conversion |
-| `inferencer.general` | `non_max_suppression`, `scale_coords` utility functions |
+| `torchvision` | `torchvision.ops.nms` for GPU-accelerated NMS |
 
 ### Design Patterns Applied
 
@@ -84,7 +84,7 @@ Input (np.ndarray BGR image, HWC)
 
 - ONNX model file must exist at the specified path and be compatible with input shape `(1, 3, 640, 640)`
 - Input image must be a valid BGR `np.ndarray` with 3 channels (uint8)
-- `inferencer.general` module must be importable (path manipulation via `sys.path.append`)
+- Post-processing functions (`non_max_suppression`, `scale_coords`) are defined within this module
 - For GPU acceleration: CUDA and cuDNN properly installed
 
 ### Known Limitations
@@ -119,7 +119,7 @@ Input (np.ndarray BGR image, HWC)
 - **Changing `self.imgsz`**: The ONNX model has a fixed input shape; mismatched sizes will cause runtime errors or incorrect outputs
 - **Removing `scale_coords`**: Detections will remain in `640x640` space instead of original image coordinates
 - **Modifying letterbox padding logic**: The `±0.1` rounding trick ensures pixel-exact symmetry; naive rounding breaks coordinate mapping
-- **Replacing torch with numpy for NMS**: `non_max_suppression` from `inferencer.general` expects torch tensors; switching requires rewriting that utility too
+- **Replacing torch with numpy for NMS**: `non_max_suppression` expects torch tensors; switching requires rewriting the entire post-processing pipeline
 
 ### Testing Recommendations
 

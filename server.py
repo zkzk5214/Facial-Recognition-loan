@@ -7,35 +7,40 @@ import time
 import base64
 import traceback
 import numpy as np
-from werkzeug.serving import WSGIRequestHandler    # Web Server Gateway Interface
-WSGIRequestHandler.protocol_version = 'HTTP/1.1'    # http server
+import yaml
 import socket
-socket.setdefaulttimeout(1)  # Prevent crawling pages for too long
+from werkzeug.serving import WSGIRequestHandler
 from flask import Flask, request, jsonify
 import utils.log as logging
 
-# SIT
+from inferencer.face_pipeline import face_register_, get_topk, head_detection_, StatusCode
+
+WSGIRequestHandler.protocol_version = 'HTTP/1.1'
+
 hostname = socket.gethostname()
 safe_hostname = re.sub(r'[^a-zA-Z0-9\-]', '_', hostname)
-LOG_FILENAME = f'/mnt/pvc/pvc-ph-irisk-id9743-vol723550-stg/log/hf_xy/info_{safe_hostname}.log'
+
+with open('./config.yaml', 'r') as f:
+    _config = yaml.safe_load(f)
+LOG_FILENAME = _config['log_path'].format(hostname=safe_hostname)
 
 try:
     logger = logging.create_logger(LOG_FILENAME, "server_logging")
 except Exception:
     logger = logging.create_logger("./log/server.log", "server_logging")
 
-
-from inferencer.register import face_register_, get_topk, head_detection_
-
 app = Flask(__name__)
 app_start_version = str(time.ctime())
-code_version = str(open('./version', 'r').read())
-this_ip = str(socket.gethostbyname(socket.gethostname()))
-version_description = f'[IP]: {this_ip}: [APP]: {app_start_version}: [CODE]: {code_version}\n'
+
+with open('./version', 'r') as f:
+    code_version = f.read().strip()
+
+server_ip = str(socket.gethostbyname(socket.gethostname()))
+version_description = f'[IP]: {server_ip}: [APP]: {app_start_version}: [CODE]: {code_version}\n'
 
 
 def decode_base64_image(base64_data):
-    return cv2.imdecode(np.fromstring(base64.b64decode(base64_data), np.uint8), cv2.IMREAD_COLOR)
+    return cv2.imdecode(np.frombuffer(base64.b64decode(base64_data), np.uint8), cv2.IMREAD_COLOR)
 
 
 def process_common_request(request, img_data_key='imgData'):
@@ -44,7 +49,7 @@ def process_common_request(request, img_data_key='imgData'):
     return json_data, img
 
 
-def create_response(json_data, default_resp_code=100):
+def create_response(json_data, default_resp_code=StatusCode.SUCCESS.value):
     return {
         "recordID": json_data['recordID'],
         "sessionID": json_data['sessionID'],
@@ -61,35 +66,42 @@ def log_request_result(json_data, resp_code, step, additional_info=None):
     logger.info('\t'.join(log_entry) + '#\n')
 
 
+def log_warning(tag, endpoint, json_data, resp_code, img_data=None):
+    entry = [f'[{tag}]: {endpoint}',
+             str(json_data['recordID']), str(json_data['sessionID']),
+             str(json_data['msgID']), str(resp_code)]
+    if img_data:
+        entry.append(str(img_data))
+    logger.info('\t'.join(entry) + '#\n')
+
+
 @app.route('/face_register', methods=['POST'])
 def face_register():
     try:
         start_time = time.time()
         json_data, img = process_common_request(request)
         res = create_response(json_data)
-        img_feature, resp_flag, imgQualityScore = face_register_(img)  # feature is []
+        face_features, status_code, quality_score = face_register_(img)
 
-        res['imgQualityScore'] = imgQualityScore
-        res['resp_code'] = resp_flag   # 200 Blur 201 逆光 221 Blur+逆光 300 No Face 400 Multi-Face
+        res['imgQualityScore'] = quality_score
+        res['resp_code'] = status_code
 
-        if not img_feature:
-            logger.info('\t'.join(['[Warning-NoFeature]: /face_register',
-                str(json_data['recordID']), str(json_data['sessionID']),
-                str(json_data['msgID']),
-                str(res['resp_code']), str(json_data['imgData'])]) + '#\n')
+        if not face_features:
+            log_warning('Warning-NoFeature', '/face_register', json_data,
+                        res['resp_code'], json_data['imgData'])
             return jsonify(res)
 
-        res['faceFeature'] = str(np.array(img_feature[0]).tolist())
+        res['faceFeature'] = str(np.array(face_features[0]).tolist())
 
-        time_cost = str(int((time.time() - start_time) * 1000))
+        latency_ms = str(int((time.time() - start_time) * 1000))
         log_request_result(json_data, res['resp_code'], '/face_register',
-                           {'QualityScore': imgQualityScore, 'TimeCost': time_cost})
+                           {'QualityScore': quality_score, 'TimeCost': latency_ms})
         return jsonify(res)
-    
+
     except Exception as e:
-        logger.error("[Traceback]:" +str(traceback.format_exc()).replace('\n', ' \t'))
+        logger.error("[Traceback]:" + str(traceback.format_exc()).replace('\n', ' \t'))
         logger.error('\t'.join(['[ExceptionTriggered]: /face_register', str(e), '#\n']))
-        return jsonify({'resp_code': 999, 'error_msg': str(e)})
+        return jsonify({'resp_code': StatusCode.ERROR.value, 'error_msg': str(e)})
 
 
 @app.route('/head_detection', methods=['POST'])
@@ -100,75 +112,64 @@ def head_detection():
         res = create_response(json_data)
         res.update({"detectRes": 0, "top3Similarity": [], "faceSimilarity": [-1], "msg": ''})
 
-        if 'faceFeature' in json_data and len(json_data['faceFeature']) > 10:
-            face_count, face_conf, img_feature, resp_flag = head_detection_(img)
+        if 'faceFeature' not in json_data or len(json_data['faceFeature']) <= 10:
+            res['resp_code'] = StatusCode.NO_FEATURE.value
+            log_warning('Warning-NoFeature', '/head_detection', json_data, res['resp_code'])
+            return jsonify(res)
 
-            if face_count < 1: # No Face
-                res['resp_code'] = resp_flag
-                res['msg'] = '看不到您的脸'
-                logger.info('\t'.join(['[Warning-NoFace]: /head_detection',
-                                       str(json_data['recordID']), str(json_data['sessionID']),
-                                       str(json_data['msgID']),
-                                       str(res['resp_code'])]) + '#\n')
-            else:
-                res['detectRes'] = face_count
-                res['top3Similarity'] = face_conf
-                res['faceSimilarity'] = [0]
-                res['resp_code'] = resp_flag
+        face_count, face_conf, face_features, status_code = head_detection_(img)
 
-                if resp_flag == 200:
-                    res['msg'] = '不要晃动手机'
-                    logger.info('\t'.join(['[Warning-Blur]: /head_detection',
-                                           str(json_data['recordID']), str(json_data['sessionID']),
-                                           str(json_data['msgID']),
-                                           str(res['resp_code']), str(json_data['imgData'])]) + '#\n')
+        if face_count < 1:
+            res['resp_code'] = status_code
+            res['msg'] = '看不到您的脸'
+            log_warning('Warning-NoFace', '/head_detection', json_data, res['resp_code'])
+            return jsonify(res)
 
-                if resp_flag == 201:
-                    res['msg'] = '摄像头不要正对灯光'
-                    logger.info('\t'.join(['[Warning-Light]: /head_detection',
-                                           str(json_data['recordID']), str(json_data['sessionID']),
-                                           str(json_data['msgID']),
-                                           str(res['resp_code']), str(json_data['imgData'])]) + '#\n')
+        res['detectRes'] = face_count
+        res['top3Similarity'] = face_conf
+        res['faceSimilarity'] = [0]
+        res['resp_code'] = status_code
 
-                if type(img_feature) != type(None) and len(img_feature) > 0:
-                    register_vector = np.array([eval(json_data['faceFeature'])])
-                    max_score, _, vector = get_topk(register_vector, np.array(img_feature))
-                    res['faceSimilarity'] = max_score if max_score[0] >= 0 else [0]
+        if status_code == StatusCode.BLURRED.value:
+            res['msg'] = '不要晃动手机'
+            log_warning('Warning-Blur', '/head_detection', json_data,
+                        res['resp_code'], json_data['imgData'])
+        elif status_code == StatusCode.BACKLIGHT.value:
+            res['msg'] = '摄像头不要正对灯光'
+            log_warning('Warning-Light', '/head_detection', json_data,
+                        res['resp_code'], json_data['imgData'])
 
-                    time_cost = str(int((time.time() - start_time) * 1000))
-                    log_request_result(json_data, res['resp_code'], '/head_detection',
-                                    {'Face_Count': res['detectRes'],
-                                        'Face_Similarity': res['faceSimilarity'],
-                                        'Face_Conf': res['top3Similarity'],
-                                        'TimeCost': time_cost})
-                else:  # img_feature = []
-                    res['resp_code'] = 600
-                    res['msg'] = '看不到您的脸'
-                    logger.info('\t'.join(['[Warning-Other]: /head_detection',
-                                        str(json_data['recordID']), str(json_data['sessionID']),
-                                        str(json_data['msgID']), str(res['resp_code']),
-                                        str(json_data['imgData'])]) + '#\n')
+        if face_features is None or len(face_features) == 0:
+            res['resp_code'] = StatusCode.FEATURE_EXTRACT_ERROR.value
+            res['msg'] = '看不到您的脸'
+            log_warning('Warning-Other', '/head_detection', json_data,
+                        res['resp_code'], json_data['imgData'])
+            return jsonify(res)
 
-        else:  # No faceFeature/wrong faceFeature type
-            res['resp_code'] = 500
-            logger.info('\t'.join(['[Warning-NoFeature]: /head_detection',
-                                str(json_data['recordID']), str(json_data['sessionID']),
-                                str(json_data['msgID']), str(res['resp_code'])]) + '#\n')
+        register_vector = np.array([json.loads(json_data['faceFeature'])])
+        max_score, _, vector = get_topk(register_vector, np.array(face_features))
+        res['faceSimilarity'] = max_score if max_score[0] >= 0 else [0]
+
+        latency_ms = str(int((time.time() - start_time) * 1000))
+        log_request_result(json_data, res['resp_code'], '/head_detection',
+                           {'Face_Count': res['detectRes'],
+                            'Face_Similarity': res['faceSimilarity'],
+                            'Face_Conf': res['top3Similarity'],
+                            'TimeCost': latency_ms})
+
         return jsonify(res)
 
     except Exception as e:
-        logger.error("[Traceback]: " + str(traceback.print_exc()).replace('\n', '\t'))
-        logger.error(
-            '\t'.join(['[ExceptionTriggered]: /head_detection ', str(e), '#\n']))
-        return jsonify({'resp_code': 999, 'error_msg': str(e)})
+        logger.error("[Traceback]: " + str(traceback.format_exc()).replace('\n', '\t'))
+        logger.error('\t'.join(['[ExceptionTriggered]: /head_detection', str(e), '#\n']))
+        return jsonify({'resp_code': StatusCode.ERROR.value, 'error_msg': str(e)})
 
 
 @app.route('/version/', methods=['GET'])
 def query_version():
-    gunicorn_process_count = re.sub(' {1,}', '', os.popen("pgrep gunicorn | wc").read()).split(' ')[1]  # workers
+    gunicorn_process_count = re.sub(' {1,}', '', os.popen("pgrep gunicorn | wc").read()).split(' ')[1]
     return f'{version_description}: [gunicorn]: {gunicorn_process_count}'
 
 
 if __name__ == '__main__':
     app.run('0.0.0.0', port=80, threaded=False)
-    

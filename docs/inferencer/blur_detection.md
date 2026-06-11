@@ -1,4 +1,4 @@
-# blur.py - Module Documentation
+# blur_detection.py - Module Documentation
 
 ## 1. Module Overview
 

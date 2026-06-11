@@ -3,36 +3,26 @@ import numpy as np
 import torchvision.transforms as T
 
 
-def l2_norm(x):
-    output = x / np.linalg.norm(x)
-    return output
-
-
 class Recognizer:
     def __init__(self, weights):
         self.model = onnxruntime.InferenceSession(weights, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-
-    def featurize(self, images, transform):
-        data = transform(images)[None].cpu().numpy()
-        inputs = {self.model.get_inputs()[0].name: data}
-        feature = self.model.run(None, inputs)[0][0]
-        return l2_norm(feature)
-
-    def recognize(self, pics):
-        transform = T.Compose([
+        self.input_name = self.model.get_inputs()[0].name
+        self.transform = T.Compose([
             T.ToPILImage(),
             T.ToTensor(),
-            T.Normalize(mean=[0.5, 0.5, 0.5],
-                        std=[0.5, 0.5, 0.5]),
+            T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ])
-        features = self.featurize(pics, transform)  # 1*512
-        return features
+
+    def recognize(self, img):
+        data = self.transform(img)[None].cpu().numpy()
+        feature = self.model.run(None, {self.input_name: data})[0][0]
+        return feature / np.linalg.norm(feature)
 
 
 if __name__ == '__main__':
     import cv2
     from sklearn.metrics.pairwise import cosine_similarity
-    from detector import Detector
+    from inferencer.face_detector import Detector
 
 
     def get_topk(register, query, topk=3):
