@@ -5,8 +5,8 @@ ENV=${1:?Usage: $0 {dev|stg|pro}}
 export APP_ENV=$ENV
 
 case $ENV in
-    dev) PORT=37709; WORKERS=2 ;;
-    stg) PORT=80;    WORKERS=4 ;;
+    dev) PORT=37701; WORKERS=2 ;;
+    stg) PORT=80;    WORKERS=6 ;;
     pro) PORT=80;    WORKERS=6 ;;
     *)   echo "Unknown env: $ENV"; exit 1 ;;
 esac
