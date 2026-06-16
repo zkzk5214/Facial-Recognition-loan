@@ -2,13 +2,14 @@
 
 ## 1. Module Overview
 
-**Core Responsibility:** Orchestrates the full face detection pipeline — from YOLO-based bounding box detection to dlib-based face alignment — producing aligned face chips ready for downstream recognition models.
+**Core Responsibility:** Provides the complete face detection pipeline — from YOLO-based bounding box detection, facial component validation (eyes + mouth), rotation correction, to dlib-based 68-landmark face alignment — producing aligned face chips ready for downstream recognition.
 
 **Key Functionalities:**
 - Detect faces and facial components (eyes, mouth) via YOLO model
-- Validate face completeness (ensures eyes and mouth are present within face bounding box)
+- Validate face completeness (eyes and mouth present, non-overlapping, within face bbox)
+- Compute face rotation angle based on eye alignment and apply rotation correction
+- Retry incomplete faces by expanding the bounding box and re-detecting
 - Perform 68-landmark-based face alignment using dlib
-- Return aligned face chips and per-face confidence scores
 
 ---
 
@@ -19,63 +20,97 @@
 | Library | Purpose |
 |---------|---------|
 | `dlib` | 68-point facial landmark prediction and face alignment (`get_face_chip`) |
-| `cv2` (OpenCV) | Color space conversion (BGR↔RGB) and image I/O |
+| `cv2` (OpenCV) | Color conversion, image rotation (`warpAffine`), resize |
+| `numpy` | Vector operations, angle calculations, trigonometry |
 | `collections.defaultdict` | Group detections by class label |
-| `complete_face` (internal) | Validate facial feature completeness (defined within this module) |
 | `inferencer.yolo_detection.YoloDetection` | YOLO-based object detection |
 
 ### Design Patterns Applied
 
-- **Facade Pattern**: `Detector` provides a single high-level `get_face_capture` method that hides the complexity of detection → validation → alignment.
-- **Pipeline Pattern**: Sequential processing stages with early-exit on failure (no detections / no faces).
+- **Facade Pattern**: `Detector.get_face_capture` provides a single high-level API hiding detection → validation → rotation → alignment complexity.
+- **Pipeline Pattern**: Sequential processing stages with early-exit on failure.
+- **Template Method**: `_rotate_and_align` conditionally applies rotation before the common alignment step.
+- **Retry Pattern**: `_retry_incomplete_face` expands bbox and re-detects when initial validation fails.
 
 ### Data Flow
 
 ```
 Input (np.ndarray BGR image)
-    -> YoloDetection.run_detect: produce bounding boxes [x1,y1,x2,y2,conf,cls]
-    -> Filter: early return if no detections or no face class
-    -> Group by class: {0: faces, 1: left_eye, 2: right_eye, 3: mouth}
-    -> BGR→RGB conversion (once)
-    -> complete_face: validate each face has eyes + mouth within its bbox
-    -> dlib_wrap: landmark detection + face alignment per valid face
-    -> Output: (face_chip_list: List[np.ndarray], face_conf: List[int]) (aligned, same length)
+    -> YOLO detection: [x1,y1,x2,y2,conf,cls] for faces/eyes/mouth
+    -> _build_face_dict: group by class {0:faces, 1:left_eye, 2:right_eye, 3:mouth}
+    -> BGR → RGB (once)
+    -> For each face:
+        -> complete_face: validate components + compute rotation params
+        -> Complete? → _rotate_and_align → aligned face (RGB)
+        -> Incomplete? → _retry_incomplete_face → expand bbox → re-detect → re-validate → align
+    -> RGB → BGR (once per face chip)
+    -> Output: (face_chip_list, face_conf)
 ```
 
 ---
 
 ## 3. Core Components Deep Dive
 
-### `Detector.__init__(self, weights, sp)`
+### Utility Functions
 
-| Item | Detail |
-|------|--------|
-| **Purpose** | Initialize YOLO detector and dlib landmark predictor |
-| **Parameters** | `weights`: `str` - path to YOLO ONNX model; `sp`: `str` - path to dlib 68-landmark `.dat` file |
-| **Return** | None |
-| **Core Logic** | Loads `dlib.shape_predictor` for landmark detection; instantiates `YoloDetection` for face/component bounding box prediction |
-
----
-
-### `Detector.dlib_wrap(self, img_rgb, x1, y1, x2, y2, size)`
-
-| Item | Detail |
-|------|--------|
-| **Purpose** | Align a face region using dlib's 68-landmark model |
-| **Parameters** | `img_rgb`: RGB image (pre-converted by caller); `x1, y1, x2, y2`: face bounding box coordinates (int); `size`: output chip size in pixels |
-| **Return** | `np.ndarray` - aligned face image (BGR, `size x size`) |
-| **Core Logic** | Predicts 68 landmarks within the given rectangle, calls `dlib.get_face_chip` to produce an affine-aligned face, converts RGB→BGR for output. Color conversion is done once by the caller for efficiency |
+| Function | Purpose |
+|----------|---------|
+| `centre_bbx(bbox)` | Return center point (cx, cy) of a bbox |
+| `check_in_face(bbox_list, face_bbox)` | Filter components whose center is inside the face bbox |
+| `cal_iou(box1, box2)` | Standard IoU calculation |
+| `del_dup(bbox_list, iou_thres)` | Greedy IoU-based duplicate removal |
+| `check_intersection(box1, box2)` | Check if two boxes have any overlap |
+| `vector_angle(v1, v2)` | Full 0°-360° angle between two 2D vectors using 2D cross product |
+| `get_rotation_matrix(p1, p2, ...)` | Compute affine rotation matrix with canvas expansion |
+| `calculate_eye_rotation(face, right, left)` | Compute rotation based on eye positions relative to face bbox |
+| `cal_angle(a, b, c)` | Signed angle at point A between vectors AB and AC |
+| `complete_face(face_dict)` | Validate completeness + compute rotation; returns `[[bool, [M, angle] or []], ...]` |
+| `_build_face_dict(res)` | Group detection results into dict by class label |
+| `_get_bbox(face_dict, idx)` | Extract integer bbox from face_dict |
 
 ---
 
-### `Detector.get_face_capture(self, pic, size=112)`
+### `Detector._align_face(self, img_rgb, x1, y1, x2, y2, size)`
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Align a face using dlib's 68-landmark model |
+| **Parameters** | `img_rgb`: RGB image; `x1,y1,x2,y2`: face bbox; `size`: output chip size |
+| **Return** | `np.ndarray` — aligned face (RGB, `size x size`) |
+| **Core Logic** | Predict 68 landmarks within rectangle, call `dlib.get_face_chip` for affine alignment |
+
+---
+
+### `Detector._rotate_and_align(self, img_rgb, rotate_para, x1, y1, x2, y2, size, angle_threshold)`
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Conditionally rotate a tilted face, then align with dlib |
+| **Parameters** | `rotate_para`: `[rotation_matrix, angle]` or `[]`; `angle_threshold`: rotation trigger threshold (default 30°) |
+| **Return** | `np.ndarray` — aligned face (RGB) |
+| **Core Logic** | If rotation angle > threshold: crop face → compute new canvas size → `warpAffine` → align. Otherwise: align directly |
+
+---
+
+### `Detector._retry_incomplete_face(self, pic_rgb, x1, y1, x2, y2, size, angle_threshold)`
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Recover incomplete faces by expanding bbox 15% and re-detecting |
+| **Parameters** | Same as face bbox coordinates + alignment params |
+| **Return** | Aligned face (RGB) or `None` if retry fails |
+| **Core Logic** | Expand bbox by `EXPAND_RATIO` → crop → convert to BGR for YOLO → re-detect → validate exactly 1 complete face → rotate and align |
+
+---
+
+### `Detector.get_face_capture(self, pic, angle_threshold=30, size=112)`
 
 | Item | Detail |
 |------|--------|
 | **Purpose** | End-to-end face detection, validation, and alignment |
-| **Parameters** | `pic`: `np.ndarray` (BGR); `size`: `int` - aligned face output size (default 112 for ArcFace) |
-| **Return** | `(face_chip_list, face_conf)` — list of aligned face images + list of confidence percentages (0-100), guaranteed to be the same length; returns `([], [])` on failure |
-| **Core Logic** | Runs YOLO detection → early exits if no faces → groups detections by class into `face_dict` → converts image to RGB once → validates completeness via `complete_face` → aligns each valid face via `dlib_wrap` and collects corresponding confidence |
+| **Parameters** | `pic`: BGR image; `angle_threshold`: rotation correction threshold; `size`: output face chip size |
+| **Return** | `(face_chip_list, face_conf)` — aligned BGR face images + confidence percentages, guaranteed same length |
+| **Core Logic** | YOLO detect → build face dict → BGR→RGB once → for each face: validate → complete? rotate+align : retry → collect results with RGB→BGR conversion |
 
 ---
 
@@ -83,21 +118,23 @@ Input (np.ndarray BGR image)
 
 ### Preconditions
 
-- YOLO ONNX model and dlib `.dat` landmark file must exist at specified paths
+- YOLO ONNX model and dlib 68-landmark `.dat` file must exist
 - Input image must be BGR `np.ndarray` (uint8, 3 channels)
-- `complete_face` expects `face_dict` with int keys `{0: faces, 1: left_eye, 2: right_eye, 3: mouth}`
+- `complete_face` expects `face_dict` with string keys `'0','1','2','3'`
 
 ### Known Limitations
 
-- **Single-scale detection**: No image pyramid; small faces in high-res images may be missed
-- **No batch processing**: Processes one image at a time
-- **dlib alignment assumes frontal/near-frontal faces**: Extreme pose angles produce poor alignment
+- **Retry adds latency**: Each incomplete face triggers a second YOLO inference on the expanded crop
+- **Single retry only**: If the expanded bbox still doesn't produce a complete face, it's skipped (no further retries)
+- **Rotation threshold is coarse**: 30° default may miss moderately tilted faces (15-30°) that dlib handles poorly
+- **`vector_angle` numerical edge case**: `np.arccos` may produce NaN if dot product exceeds [-1, 1] due to floating point
+- **Face confidence alignment assumption**: `faces[idx]` assumes detection order matches `face_dict['0']` order
 
 ### Side Effect Warnings
 
-- `sys.path.append` at module level permanently mutates `sys.path` for the process
-- dlib landmark prediction allocates internal buffers; no external I/O or global state changes
-- Input image `pic` is NOT modified (read-only access)
+- BGR→RGB conversion creates a copy of the full image (memory)
+- `_retry_incomplete_face` creates an additional BGR copy for YOLO re-detection
+- No file I/O or global state mutations
 
 ---
 
@@ -107,22 +144,23 @@ Input (np.ndarray BGR image)
 
 | Zone | Safety | Notes |
 |------|--------|-------|
-| `__main__` block | Safe | Test code only |
-| `size` default value (112) | Safe | Can change to match different recognition models (e.g., 160 for FaceNet) |
-| `face_conf` formatting | Safe | `int(i * 100)` can be changed to float or different scale |
-| `dlib_wrap` internals | Moderate | Alignment logic can be swapped (e.g., to OpenCV affine) without API change |
-| `get_face_capture` return format | Caution | Downstream consumers depend on `(list, list)` tuple |
+| `EXPAND_RATIO` (0.15) | Safe | Tunable; larger = more aggressive retry |
+| `angle_threshold` default (30) | Safe | Lower = more faces get rotated; higher = more rely on dlib |
+| `_get_bbox` / `_build_face_dict` | Safe | Pure helpers |
+| Rotation logic in `complete_face` | Moderate | Affects which faces get rotation correction |
+| `get_face_capture` return format | Caution | `face_pipeline.py` depends on `(list, list)` |
 
 ### Common Refactoring Pitfalls
 
-- **Changing `face_dict` key type**: Must stay consistent with `complete_face` which expects int keys `0, 1, 2, 3`
-- **Removing `complete_face` validation**: Will allow incomplete/occluded faces through, degrading recognition accuracy
-- **Passing BGR to `dlib_wrap`**: The method now expects pre-converted RGB input; passing BGR will produce wrong landmarks and misaligned output
-- **Confidence indexing**: `face_conf` uses `faces[ii]` to index; if detection order changes or filtering is modified, ensure index alignment is maintained
+- **Changing color space flow**: The pipeline is RGB internally; breaking this assumption causes silent color errors in dlib alignment
+- **Modifying `face_dict` key type**: Must stay as strings; `complete_face` reads `'0','1','2','3'`
+- **Removing retry logic**: Some edge-positioned faces will be lost; affects recall
+- **Changing `_align_face` to accept BGR**: Would require updating `_rotate_and_align` and `_retry_incomplete_face` call sites
 
 ### Testing Recommendations
 
-- **Integration test**: Provide an image with known face count; verify `len(face_chip_list)` matches expected
-- **Incomplete face test**: Use an image with occluded face (missing mouth); verify it is excluded from results
-- **Alignment quality test**: Compare aligned face output against a reference alignment to verify landmark accuracy
-- **Empty input test**: Verify `([], [])` is returned for images with no faces or blank images
+- **Complete face test**: Image with clear frontal face → verify chip returned with high confidence
+- **Tilted face test**: Image with >30° head tilt → verify rotation correction produces horizontal eyes
+- **Incomplete face test**: Partially occluded face → verify retry recovers it (or gracefully skips)
+- **Multi-face test**: Image with multiple faces → verify correct count and independent confidence values
+- **Edge face test**: Face at image boundary → verify bbox expansion is clamped correctly

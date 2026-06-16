@@ -52,8 +52,10 @@ def check_intersection(box1, box2):
 
 def vector_angle(v1, v2):
     """Calculate the angle (in degrees) between two 2D vectors."""
+    # Calculate the angle using the arccosine of the dot product divided by the product of the magnitudes
     r = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
-    deg = np.degrees(r)
+    deg = np.degrees(r) # Convert radians to degrees
+    # Determine the sign of the angle using the cross product
     if v1[0] * v2[1] - v1[1] * v2[0] > 0:
         deg = 360 - deg
     return deg
@@ -62,13 +64,17 @@ def vector_angle(v1, v2):
 def get_rotation_matrix(p1, p2, x1, y1, x2, y2):
     """Compute rotation matrix to align eyes horizontally within the face bbox."""
     angle = vector_angle(p1 - p2, [1, 0])
-    xc = (x1 + x2) // 2
+    # Calculate the center of the face bounding box
+    xc = (x1 + x2) // 2 
     yc = (y1 + y2) // 2
+    # Get the rotation matrix for the specified angle and center
     M = cv2.getRotationMatrix2D((xc, yc), angle, 1)
+    # Calculate the new width and height of the rotated image to ensure it fits without cropping
     cos, sin = np.abs(M[0, 0]), np.abs(M[0, 1])
-    nW = int((y2 * sin) + (x2 * cos))
-    nH = int((y2 * cos) + (x2 * sin))
-    M[0, 2] += (nW / 2) - xc
+    nW = int((y2 * sin) + (x2 * cos)) # W = H*sin(θ) + W*cos(θ)
+    nH = int((y2 * cos) + (x2 * sin)) # H = H*cos(θ) + W*sin(θ)
+    # Shift the image to the center of the new dimensions
+    M[0, 2] += (nW / 2) - xc 
     M[1, 2] += (nH / 2) - yc
     return M, angle
 
@@ -76,6 +82,7 @@ def get_rotation_matrix(p1, p2, x1, y1, x2, y2):
 def calculate_eye_rotation(face, right_eyes, left_eyes):
     """Calculate rotation matrix and angle based on eye positions relative to face bbox."""
     fx, fy = face[0], face[1]
+    # Calculate the relative positions of the eyes with respect to the face bounding box
     right_rel = [right_eyes[0]-fx, right_eyes[1]-fy, right_eyes[2]-fx, right_eyes[3]-fy]
     left_rel = [left_eyes[0]-fx, left_eyes[1]-fy, left_eyes[2]-fx, left_eyes[3]-fy]
     eye_right_center = np.array(centre_bbx(right_rel))
@@ -142,32 +149,64 @@ def _build_face_dict(res):
     return face_dict
 
 
+def _get_bbox(face_dict, idx):
+    """Extract integer bbox coordinates from face_dict."""
+    b = face_dict['0'][idx]
+    return int(b[0]), int(b[1]), int(b[2]), int(b[3])
+
+
 class Detector:
+    EXPAND_RATIO = 0.15
+
     def __init__(self, weights, sp):
         self.sp = dlib.shape_predictor(sp)
         self.yolo_detect = YoloDetection(weights)
 
-    def dlib_wrap(self, img_bgr, x1, y1, x2, y2, size):
-        """Align a face using dlib's 68-landmark model."""
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    def _align_face(self, img_rgb, x1, y1, x2, y2, size):
+        """Align a face using dlib's 68-landmark model. Expects RGB input."""
         rec = dlib.rectangle(x1, y1, x2, y2)
         shape = self.sp(img_rgb, rec)
-        image = dlib.get_face_chip(img_rgb, shape, size)
-        return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        return dlib.get_face_chip(img_rgb, shape, size)
 
-    def img_rotate(self, img, rotate_para, x1, y1, x2, y2, size, angle_threshold):
-        """Rotate face if rotation angle exceeds threshold, then align with dlib."""
-        if rotate_para:
+    def _rotate_and_align(self, img_rgb, rotate_para, x1, y1, x2, y2, size, angle_threshold):
+        """Rotate face if needed, then align with dlib."""
+        if rotate_para and rotate_para[1] > angle_threshold:
             rotation_matrix, rotation_angle = rotate_para
-            if rotation_angle > angle_threshold:
-                sub_face = img[y1:y2, x1:x2, :]
-                theta = rotation_angle * np.pi / 180
-                new_w = int(abs(np.sin(theta) * sub_face.shape[0]) + abs(np.cos(theta) * sub_face.shape[1]))
-                new_h = int(abs(np.sin(theta) * sub_face.shape[1]) + abs(np.cos(theta) * sub_face.shape[0]))
-                sub_face = cv2.warpAffine(sub_face, rotation_matrix, (new_w, new_h), flags=cv2.INTER_CUBIC)
-                return self.dlib_wrap(sub_face, 0, 0, new_w, new_h, size)
+            sub_face = img_rgb[y1:y2, x1:x2, :]
+            theta = rotation_angle * np.pi / 180
+            new_w = int(abs(np.sin(theta) * sub_face.shape[0]) + abs(np.cos(theta) * sub_face.shape[1]))
+            new_h = int(abs(np.sin(theta) * sub_face.shape[1]) + abs(np.cos(theta) * sub_face.shape[0]))
+            sub_face = cv2.warpAffine(sub_face, rotation_matrix, (new_w, new_h), flags=cv2.INTER_CUBIC)
+            return self._align_face(sub_face, 0, 0, new_w, new_h, size)
 
-        return self.dlib_wrap(img, x1, y1, x2, y2, size)
+        return self._align_face(img_rgb, x1, y1, x2, y2, size)
+
+    def _retry_incomplete_face(self, pic_rgb, x1, y1, x2, y2, size, angle_threshold):
+        """Expand bbox and re-detect for incomplete faces. Returns aligned face or None."""
+        h, w = pic_rgb.shape[:2]
+        expand = self.EXPAND_RATIO
+        new_x1 = max(0, int(x1 - expand * (x2 - x1)))
+        new_y1 = max(0, int(y1 - expand * (y2 - y1)))
+        new_x2 = min(w, int(x2 + expand * (x2 - x1)))
+        new_y2 = min(h, int(y2 + expand * (y2 - y1)))
+
+        new_pic = pic_rgb[new_y1:new_y2, new_x1:new_x2, :]
+        new_pic_bgr = cv2.cvtColor(new_pic, cv2.COLOR_RGB2BGR)
+        new_res = self.yolo_detect.run_detect(new_pic_bgr)
+
+        if new_res.size == 0:
+            return None
+        if len(new_res[new_res[:, 5] == 0]) != 1:
+            return None
+
+        new_face_dict = _build_face_dict(new_res)
+        new_face_status = complete_face(new_face_dict)[0]
+
+        if not new_face_status[0]:
+            return None
+
+        nx1, ny1, nx2, ny2 = _get_bbox(new_face_dict, 0)
+        return self._rotate_and_align(new_pic, new_face_status[1], nx1, ny1, nx2, ny2, size, angle_threshold)
 
     def get_face_capture(self, pic, angle_threshold=30, size=112):
         """Detect faces, validate completeness, rotate if needed, and return aligned face chips."""
@@ -181,40 +220,21 @@ class Detector:
             return [], []
 
         face_dict = _build_face_dict(res)
+        pic_rgb = cv2.cvtColor(pic, cv2.COLOR_BGR2RGB)
         face_chip_list = []
         face_conf = []
 
         for idx, face_status in enumerate(complete_face(face_dict)):
-            x1, y1 = int(face_dict['0'][idx][0]), int(face_dict['0'][idx][1])
-            x2, y2 = int(face_dict['0'][idx][2]), int(face_dict['0'][idx][3])
+            x1, y1, x2, y2 = _get_bbox(face_dict, idx)
 
             if not face_status[0]:
-                new_x1 = max(0, int(x1 - 0.15 * (x2 - x1)))
-                new_y1 = max(0, int(y1 - 0.15 * (y2 - y1)))
-                new_x2 = min(pic.shape[1], int(x2 + 0.15 * (x2 - x1)))
-                new_y2 = min(pic.shape[0], int(y2 + 0.15 * (y2 - y1)))
-
-                new_pic = pic[new_y1:new_y2, new_x1:new_x2, :]
-                new_res = self.yolo_detect.run_detect(new_pic)
-
-                if new_res.size == 0:
+                image = self._retry_incomplete_face(pic_rgb, x1, y1, x2, y2, size, angle_threshold)
+                if image is None:
                     continue
-                if len(new_res[new_res[:, 5] == 0]) != 1:
-                    continue
-
-                new_face_dict = _build_face_dict(new_res)
-                new_face_status = complete_face(new_face_dict)[0]
-
-                if not new_face_status[0]:
-                    continue
-
-                nx1, ny1 = int(new_face_dict['0'][0][0]), int(new_face_dict['0'][0][1])
-                nx2, ny2 = int(new_face_dict['0'][0][2]), int(new_face_dict['0'][0][3])
-                image = self.img_rotate(new_pic, new_face_status[1], nx1, ny1, nx2, ny2, size, angle_threshold)
             else:
-                image = self.img_rotate(pic, face_status[1], x1, y1, x2, y2, size, angle_threshold)
+                image = self._rotate_and_align(pic_rgb, face_status[1], x1, y1, x2, y2, size, angle_threshold)
 
-            face_chip_list.append(image)
+            face_chip_list.append(cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
             face_conf.append(int(faces[idx][4] * 100))
 
         return face_chip_list, face_conf
