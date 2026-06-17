@@ -2,14 +2,13 @@
 
 ## 1. Module Overview
 
-**Core Responsibility:** Provides the Flask HTTP API layer for face registration and head detection services, handling request parsing, response formatting, error handling, and logging while delegating core inference logic to the `face_pipeline` module.
+**Core Responsibility:** Provides the Flask HTTP API layer for face detection and similarity comparison services, handling base64 image decoding, mask detection, face feature extraction, and Top-K similarity scoring.
 
 **Key Functionalities:**
-- `/face_register` (POST): Register a face — detect, validate quality, and extract face embedding
-- `/head_detection` (POST): Detect face in real-time frame, compare against registered embedding
-- `/version/` (GET): Health check endpoint returning server version and worker count
-- Unified request parsing (base64 image decoding) and response formatting
-- Structured logging with environment-configurable log path
+- `/head_detection` (POST): Full pipeline — decode DS/CS/Group images, mask detection, face registration, DS+CS similarity comparison
+- `/ds_head_detection` (POST): Simplified pipeline — decode DS/Group images, face registration, DS similarity comparison only
+- `/version/` (GET): Health check endpoint returning server version and gunicorn worker count
+- Base64 image decoding utility
 
 ---
 
@@ -21,65 +20,84 @@
 |---------|---------|
 | `flask` | HTTP server framework (routes, request parsing, JSON response) |
 | `werkzeug` | WSGI request handler configuration (HTTP/1.1) |
-| `cv2` (OpenCV) | Base64 image decoding |
-| `numpy` | Image buffer conversion, array operations |
-| `yaml` | Load configuration from `config.yaml` |
-| `utils.log` | Custom logger creation |
-| `inferencer.face_pipeline` | Core inference pipeline (`face_register_`, `head_detection_`, `get_topk`, `StatusCode`) |
+| `cv2` (OpenCV) | Base64 image decoding via `imdecode` |
+| `numpy` | Image buffer conversion (`frombuffer`) |
+| `yaml` | Load log path configuration from `config.yaml` |
+| `utils.log` | Custom logger with daily rotation |
+| `inferencer.mask_detect` | Mask/no-mask classification |
+| `inferencer.face_pipeline` | `face_register` (face detection + embedding), `get_topk` (similarity) |
 
 ### Design Patterns Applied
 
-- **Facade Pattern**: Flask routes act as thin facades over `face_pipeline` functions, handling only HTTP concerns (parsing, response formatting, error handling)
-- **Early Return Pattern**: `head_detection` uses early returns to flatten nested error handling
-- **Configuration Externalization**: Log path loaded from `config.yaml` for environment portability
+- **Facade Pattern**: Flask routes act as thin facades over inference pipeline functions, handling only HTTP concerns.
+- **Early Return Pattern**: Both routes use early returns for validation failures (image too small, no face detected).
+- **Configuration Externalization**: Log path loaded from `config.yaml` for environment portability.
 
 ### Data Flow
 
 ```
-HTTP POST (JSON with base64 image)
-    -> process_common_request: parse JSON + decode base64 -> np.ndarray
-    -> face_register_ / head_detection_: core inference pipeline
-    -> create_response: build response dict with IDs
-    -> Populate response fields (features, quality score, similarity)
-    -> log_request_result / log_warning: structured logging
-    -> jsonify: return JSON response
+/head_detection:
+    HTTP POST (JSON with imgDataRegisterDS, imgDataRegisterCS, imgData)
+        -> decode_base64_image × 3
+        -> mask_detect.get_class(imgData) → mask flag
+        -> face_register(DS, get_conf=False) → ds_feature
+        -> face_register(CS, get_conf=False) → cs_feature
+        -> face_register(Group) → group_feature + detectionConf
+        -> get_topk(ds vs group) → faceSimilarityDS
+        -> get_topk(cs vs group) → faceSimilarityCS
+        -> jsonify response
+
+/ds_head_detection:
+    HTTP POST (JSON with imgDataRegisterDS, imgData)
+        -> decode_base64_image × 2
+        -> face_register(DS, get_conf=False) → ds_feature
+        -> face_register(Group) → img_feature + detectionConf
+        -> get_topk(ds vs group) → faceSimilarityDS
+        -> jsonify response
 ```
 
 ---
 
 ## 3. Core Components Deep Dive
 
-### `/face_register` (POST)
-
-| Item | Detail |
-|------|--------|
-| **Purpose** | Register a face: detect, assess quality, extract 512-d embedding |
-| **Request** | JSON with `recordID`, `sessionID`, `msgID`, `imgData` (base64 BGR image) |
-| **Response** | `{resp_code, imgQualityScore, faceFeature}` — status code, quality [1-100], stringified feature vector |
-| **Error Handling** | Returns `resp_code=999` on uncaught exceptions; logs warning if no feature extracted |
-
----
-
 ### `/head_detection` (POST)
 
 | Item | Detail |
 |------|--------|
-| **Purpose** | Detect face in real-time frame and compute similarity against registered embedding |
-| **Request** | JSON with `recordID`, `sessionID`, `msgID`, `imgData`, `faceFeature` (stringified registered vector) |
-| **Response** | `{resp_code, detectRes, top3Similarity, faceSimilarity, msg}` — status, face count, confidences, similarity scores, user-facing message |
-| **Flow** | Validate faceFeature exists → detect faces → check quality flags → extract embedding → compute cosine similarity via `get_topk` |
+| **Purpose** | Full face comparison: detect faces in 3 images (DS register, CS register, live group), compute mask status and similarity scores |
+| **Request** | JSON with `recordID`, `msgID`, `imgDataRegisterDS`, `imgDataRegisterCS`, `imgData` (all base64) |
+| **Response** | `{recordID, msgID, detectionSimilarity, faceSimilarityDS, faceSimilarityCS, imgQuality, mask}` |
+| **Early Exits** | Image base64 too short (< 1000 chars) → size error; no group faces detected → incomplete |
+| **Error Handling** | Returns hardcoded response with `[100, 100]` scores on uncaught exceptions |
 
 ---
 
-### Helper Functions
+### `/ds_head_detection` (POST)
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Simplified DS-only comparison: detect faces in 2 images (DS register, live group), compute DS similarity |
+| **Request** | JSON with `msgID`, `imgDataRegisterDS`, `imgData` (base64) |
+| **Response** | `{msgID, detectionSimilarity, faceSimilarityDS, imgQuality}` |
+| **Early Exits** | Image too short; no group faces; no DS faces |
+| **Error Handling** | Returns hardcoded response with `[100]` scores on uncaught exceptions |
+
+---
+
+### `/version/` (GET)
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Health check returning server IP, start time, code version, and gunicorn worker count |
+| **Response** | Plain text string |
+
+---
+
+### Helper Function
 
 | Function | Purpose |
 |----------|---------|
-| `decode_base64_image` | Base64 string → BGR `np.ndarray` via `cv2.imdecode` |
-| `process_common_request` | Parse Flask request body and decode image in one call |
-| `create_response` | Build response dict with session IDs and default status code |
-| `log_request_result` | Log successful request with timing and metadata |
-| `log_warning` | Log warning events (no face, blur, etc.) with context |
+| `decode_base64_image(base64_data)` | Base64 string → BGR `np.ndarray` via `np.frombuffer` + `cv2.imdecode` |
 
 ---
 
@@ -89,20 +107,21 @@ HTTP POST (JSON with base64 image)
 
 - `config.yaml` must exist at project root with `log_path` key
 - `./version` file must exist (read at startup)
-- All model weight files must be present (loaded transitively via `face_pipeline` import)
-- Request JSON must contain `recordID`, `sessionID`, `msgID` fields
+- Model weight files must be present (loaded transitively via `face_pipeline` and `mask_detect` imports)
+- Request JSON must contain `msgID` and image data fields
 
 ### Known Limitations
 
 - **Single-threaded by default** (`threaded=False`): Production relies on gunicorn for concurrency
 - **No request size limit**: Large base64 images could cause memory issues
-- **`json.loads(json_data['faceFeature'])` parsing**: If client sends malformed feature string, will raise exception (caught by try/except)
-- **`os.popen` in `/version/`**: Spawns a shell process on every call; not ideal for high-frequency health checks
-- **Logging includes raw `imgData`** in warnings: Base64 image data in logs causes massive log file sizes
+- **Exception returns fake scores**: Both routes return `[100]` on error, making errors look like perfect matches
+- **`except` block re-parses request**: If the original parse failed, the `except` block will also fail (secondary crash)
+- **`os.popen` in `/version/`**: Spawns a shell process on every call
+- **Similarity only computed for single-face registrations**: `if len(ds_feature) == 1` skips multi-face DS images silently
 
 ### Side Effect Warnings
 
-- Module import triggers loading of 4 ML models via `face_pipeline` (GPU memory allocation, ~5-10s cold start)
+- Module import triggers loading of ML models via `face_pipeline` and `mask_detect` (GPU memory allocation)
 - Logger writes to file system continuously
 - `WSGIRequestHandler.protocol_version` globally modifies werkzeug behavior
 
@@ -114,23 +133,24 @@ HTTP POST (JSON with base64 image)
 
 | Zone | Safety | Notes |
 |------|--------|-------|
-| Response field names/values | Moderate | Frontend depends on exact field names; coordinate with client team |
+| Response field values | Moderate | Frontend depends on exact field names |
 | Log format/content | Safe | Internal; can adjust without breaking API |
-| `config.yaml` fields | Safe | Can add new config items without code changes |
-| Status code messages (Chinese strings) | Safe | User-facing text; can localize |
+| `config.yaml` fields | Safe | Can add new config items |
 | `/version/` endpoint | Safe | Monitoring only |
+| Image size threshold (1000) | Safe | Tunable validation |
 
 ### Common Refactoring Pitfalls
 
-- **Changing response field names**: Client applications depend on `resp_code`, `faceFeature`, `imgQualityScore`, `faceSimilarity`, etc. Any rename is a breaking API change
-- **Modifying `StatusCode` values**: Must stay consistent between `server.py` and `face_pipeline.py`; also affects client-side status handling
-- **Removing `try/except` blocks**: Routes must always return valid JSON; unhandled exceptions would return HTML error pages
-- **Changing `faceFeature` serialization format**: Currently `str(list)` format; client uses `json.loads` to parse; changing format breaks compatibility
+- **Changing response field names**: Client applications depend on `detectionSimilarity`, `faceSimilarityDS`, `faceSimilarityCS`, `imgQuality`, `mask`
+- **Removing `try/except` blocks**: Routes must always return valid JSON; unhandled exceptions return HTML error pages
+- **Changing `face_register` return format**: Both routes destructure as `(features, conf)` or plain list depending on `get_conf`
+- **Modifying mask detection logic**: `0 if get_class(img) else 1` — inverting breaks client interpretation
 
 ### Testing Recommendations
 
-- **API contract test**: Send valid request to `/face_register`; verify response contains all expected fields with correct types
-- **Error handling test**: Send request with missing `imgData`; verify `resp_code=999` and no server crash
-- **No-face test**: Send image without faces; verify `resp_code=300`
-- **Similarity test**: Register a face, then send same face to `/head_detection`; verify `faceSimilarity > 90`
-- **Load test**: Verify gunicorn workers handle concurrent requests without model conflicts
+- **API contract test**: Send valid request to `/head_detection`; verify response contains all expected fields
+- **Error handling test**: Send malformed JSON; verify no server crash and response is returned
+- **No-face test**: Send image without faces; verify `detectionSimilarity` is empty
+- **Mask test**: Send image with masked face; verify `mask` field is 0
+- **DS similarity test**: Register face via DS, send same face as group; verify `faceSimilarityDS` score > 90
+- **Image size test**: Send base64 string < 1000 chars; verify `imgQuality.size` is 0
