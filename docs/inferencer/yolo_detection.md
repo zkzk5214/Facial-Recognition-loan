@@ -78,6 +78,27 @@ Input (np.ndarray BGR image, HWC)
 
 ---
 
+### Post-processing Functions (module-level)
+
+| Function | Purpose |
+|----------|---------|
+| `clip_coords(boxes, shape)` | Clamp xyxy bounding boxes to image boundaries (height, width) using `torch.clamp_` |
+| `scale_coords(img1_shape, coords, img0_shape)` | Rescale xyxy coords from letterboxed image space back to original image; removes padding then divides by gain |
+| `xywh2xyxy(x)` | Convert boxes from `[cx, cy, w, h]` to `[x1, y1, x2, y2]` format (returns a clone) |
+
+---
+
+### `non_max_suppression(prediction, conf_thres, iou_thres, max_det, agnostic)`
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Perform Non-Maximum Suppression on raw YOLO model output |
+| **Parameters** | `prediction`: `Tensor` (batch, num_anchors, 5+num_classes); `conf_thres`: objectness threshold; `iou_thres`: NMS IoU threshold; `max_det`: max detections per image; `agnostic`: class-agnostic NMS flag |
+| **Return** | `List[Tensor]` — one tensor per batch image, each shape `(n, 6)` as `[x1, y1, x2, y2, conf, cls]` |
+| **Core Logic** | For each image: filter by confidence → zero out invalid-sized boxes → compute `obj_conf * cls_conf` → convert xywh→xyxy → select best class per box → apply `torchvision.ops.nms` with per-class offset → limit to `max_det` |
+
+---
+
 ## 4. Constraints, Edge Cases & Side Effects
 
 ### Preconditions
@@ -97,7 +118,7 @@ Input (np.ndarray BGR image, HWC)
 ### Side Effect Warnings
 
 - Model loading allocates GPU memory (if CUDA provider available) that persists for the object's lifetime
-- `sys.path.append` at module level mutates the global Python path permanently for the process
+- `non_max_suppression` modifies the input `prediction` tensor in-place (zeroing objectness for invalid boxes)
 - No file system writes or network requests during inference
 
 ---
