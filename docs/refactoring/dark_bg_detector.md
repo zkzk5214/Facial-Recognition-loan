@@ -1,5 +1,7 @@
 # 黑背景检测模块设计 (`dark_bg_detector`)
 
+> 实现代码: [inferencer/dark_bg_detector.py](../../inferencer/dark_bg_detector.py) | 模块文档: [docs/inferencer/dark_bg_detector.md](../inferencer/dark_bg_detector.md)
+
 ## 1. 目的
 
 独立的人脸图片黑背景检测模块，对外提供 HTTP 端点 `/dark_bg_check`，用于判断拍摄环境背景是否过暗。

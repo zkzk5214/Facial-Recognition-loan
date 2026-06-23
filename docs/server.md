@@ -7,6 +7,7 @@
 **Key Functionalities:**
 - `/face_register` (POST): Register a face — detect, validate quality, and extract face embedding
 - `/head_detection` (POST): Detect face in real-time frame, compare against registered embedding
+- `/dark_bg_check` (POST): Two-stage dark background detection (model + CV background analysis)
 - `/version/` (GET): Health check endpoint returning server version and worker count
 - Unified request parsing (base64 image decoding) and response formatting
 - Structured logging with environment-configurable log path
@@ -26,6 +27,7 @@
 | `yaml` | Load configuration from `config.yaml` |
 | `utils.log` | Custom logger creation |
 | `inferencer.face_pipeline` | Core inference pipeline (`face_register_`, `head_detection_`, `get_topk`, `StatusCode`) |
+| `inferencer.dark_bg_detector` | Dark background detection (`dark_bg_check`) |
 
 ### Design Patterns Applied
 
@@ -38,9 +40,11 @@
 ```
 HTTP POST (JSON with base64 image)
     -> process_common_request: parse JSON + decode base64 -> np.ndarray
-    -> face_register_ / head_detection_: core inference pipeline
+    -> /face_register: face_register_
+    -> /head_detection: head_detection_
+    -> /dark_bg_check: dark_bg_check
     -> create_response: build response dict with IDs
-    -> Populate response fields (features, quality score, similarity)
+    -> Populate response fields (features, quality score, similarity, dark_bg flags)
     -> log_request_result / log_warning: structured logging
     -> jsonify: return JSON response
 ```
@@ -68,6 +72,17 @@ HTTP POST (JSON with base64 image)
 | **Request** | JSON with `recordID`, `sessionID`, `msgID`, `imgData`, `faceFeature` (stringified registered vector) |
 | **Response** | `{resp_code, detectRes, top3Similarity, faceSimilarity, msg}` — status, face count, confidences, similarity scores, user-facing message |
 | **Flow** | Validate faceFeature exists → detect faces → check quality flags → extract embedding → compute cosine similarity via `get_topk` |
+
+---
+
+### `/dark_bg_check` (POST)
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Two-stage dark background detection for face registration images |
+| **Request** | JSON with `recordID`, `sessionID`, `msgID`, `imgData` (base64 BGR image) |
+| **Response** | `{resp_code, is_dark_bg, dark_score, bg_ratio}` — resp_code: 100=normal, 300=no face, 999=error |
+| **Flow** | Decode image → `dark_bg_check()` → Stage 1: model inference (class 2 ≥ 0.95) → Stage 2: CV background dark pixel ratio → return result |
 
 ---
 
@@ -99,6 +114,7 @@ HTTP POST (JSON with base64 image)
 - **`json.loads(json_data['faceFeature'])` parsing**: If client sends malformed feature string, will raise exception (caught by try/except)
 - **`os.popen` in `/version/`**: Spawns a shell process on every call; not ideal for high-frequency health checks
 - **Logging includes raw `imgData`** in warnings: Base64 image data in logs causes massive log file sizes
+- **`/dark_bg_check` loads two independent ONNX models** (ImgQuality + YOLO): Additional GPU memory; total 5 models loaded at startup
 
 ### Side Effect Warnings
 
@@ -119,6 +135,8 @@ HTTP POST (JSON with base64 image)
 | `config.yaml` fields | Safe | Can add new config items without code changes |
 | Status code messages (Chinese strings) | Safe | User-facing text; can localize |
 | `/version/` endpoint | Safe | Monitoring only |
+| `/dark_bg_check` endpoint | Safe | Independent endpoint; uses isolated model instances |
+| `config.yaml` new keys under `dark_bg.*` | Safe | Self-contained namespace |
 
 ### Common Refactoring Pitfalls
 

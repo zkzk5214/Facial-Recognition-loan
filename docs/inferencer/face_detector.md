@@ -9,6 +9,7 @@
 - Validate face completeness (ensures eyes and mouth are present within face bounding box)
 - Perform 68-landmark-based face alignment using dlib
 - Return aligned face chips and per-face confidence scores
+- Provide lightweight face bounding box detection without alignment (`get_face_bboxes`)
 
 ---
 
@@ -31,6 +32,7 @@
 
 ### Data Flow
 
+`get_face_capture` 路径:
 ```
 Input (np.ndarray BGR image)
     -> YoloDetection.run_detect: produce bounding boxes [x1,y1,x2,y2,conf,cls]
@@ -40,6 +42,15 @@ Input (np.ndarray BGR image)
     -> complete_face: validate each face has eyes + mouth within its bbox
     -> dlib_wrap: landmark detection + face alignment per valid face
     -> Output: (face_chip_list: List[np.ndarray], face_conf: List[int]) (aligned, same length)
+```
+
+`get_face_bboxes` 路径:
+```
+Input (np.ndarray BGR image)
+    -> YoloDetection.run_detect: produce bounding boxes
+    -> Filter: early return [] if no detections or no face class
+    -> Extract face bbox coordinates (no dlib alignment)
+    -> Output: List[[x1,y1,x2,y2]] (int coordinates)
 ```
 
 ---
@@ -76,6 +87,17 @@ Input (np.ndarray BGR image)
 | **Parameters** | `pic`: `np.ndarray` (BGR); `size`: `int` - aligned face output size (default 112 for ArcFace) |
 | **Return** | `(face_chip_list, face_conf)` — list of aligned face images + list of confidence percentages (0-100), guaranteed to be the same length; returns `([], [])` on failure |
 | **Core Logic** | Runs YOLO detection → early exits if no faces → groups detections by class into `face_dict` → converts image to RGB once → validates completeness via `complete_face` → aligns each valid face via `dlib_wrap` and collects corresponding confidence |
+---
+
+
+### `Detector.get_face_bboxes(self, pic)`
+
+| Item | Detail |
+|------|--------|
+| **Purpose** | Lightweight face bounding box detection without landmark alignment |
+| **Parameters** | `pic`: `np.ndarray` (BGR) — input image |
+| **Return** | `List[[x1,y1,x2,y2]]` — list of face bounding box coordinates (int); returns `[]` on failure |
+| **Core Logic** | Runs YOLO detection → early exits if no detections → filters for face class (class 0) → extracts and returns bounding box coordinates only. Skips `complete_face` validation and dlib alignment entirely for speed |
 
 ---
 
@@ -112,6 +134,7 @@ Input (np.ndarray BGR image)
 | `face_conf` formatting | Safe | `int(i * 100)` can be changed to float or different scale |
 | `dlib_wrap` internals | Moderate | Alignment logic can be swapped (e.g., to OpenCV affine) without API change |
 | `get_face_capture` return format | Caution | Downstream consumers depend on `(list, list)` tuple |
+| `get_face_bboxes` | Safe | Lightweight dedicated method; no downstream consumers beyond `dark_bg_detector` |
 
 ### Common Refactoring Pitfalls
 

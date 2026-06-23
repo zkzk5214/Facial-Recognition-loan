@@ -14,8 +14,8 @@ Face detection, alignment, recognition, and similarity comparison service with i
 └──────┬──────────────────────┘
        │
 ┌──────▼────────┐  ┌───────────────┐  ┌────────────────┐  ┌──────────────┐
-│ face_detector │  │face_recognizer│  │ blur_detection │  │image_quality │
-│ (YOLO+dlib)  │  │   (TFace)     │  │   (ONNX)      │  │   (ONNX)     │
+│  face_detector │  │face_recognizer│  │ blur_detection │  │image_quality │  │dark_bg_detector│
+│ (YOLO+dlib)  │  │   (TFace)     │  │   (ONNX)       │  │   (ONNX)     │  │(Model+CV)    │
 └───────────────┘  └───────────────┘  └────────────────┘  └──────────────┘
 ```
 
@@ -35,7 +35,8 @@ Human_Face/
 │   ├── face_recognizer.py # TFace 512-d embedding extraction
 │   ├── yolo_detection.py  # YOLO inference + NMS post-processing
 │   ├── blur_detection.py  # Blur/sharpness classification
-│   └── image_quality.py   # Image quality (lighting) classification
+│   ├── image_quality.py   # Image quality (lighting) classification
+│   └── dark_bg_detector.py # Dark background detection (two-stage)
 ├── utils/
 │   └── log.py             # Custom rotating file logger
 ├── resources/             # Model weight files (.onnx, .dat)
@@ -130,6 +131,31 @@ Real-time face detection and similarity comparison against a registered embeddin
 | `faceSimilarity` | list | Similarity score vs registered face |
 | `msg` | string | User-facing status message |
 
+### POST /dark_bg_check
+
+Dark background detection using two-stage pipeline (quality model + CV background analysis).
+
+**Request:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `recordID` | string | Request record ID |
+| `sessionID` | string | Session ID |
+| `msgID` | string | Message ID |
+| `imgData` | string | Base64 encoded image |
+
+**Response:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `recordID` | string | Echo request record ID |
+| `sessionID` | string | Echo session ID |
+| `msgID` | string | Echo message ID |
+| `resp_code` | int | Status code (100=normal, 300=no face, 999=error) |
+| `is_dark_bg` | bool | Whether the image has a dark background |
+| `dark_score` | float | Stage 1 model class 2 score |
+| `bg_ratio` | float | Stage 2 background dark pixel ratio |
+
 ### GET /version/
 
 Returns server IP, start time, code version, and gunicorn worker count.
@@ -159,3 +185,4 @@ Detailed module documentation available in `docs/`:
 - [yolo_detection.py](docs/inferencer/yolo_detection.md)
 - [blur_detection.py](docs/inferencer/blur_detection.md)
 - [image_quality.py](docs/inferencer/image_quality.md)
+- [dark_bg_detector.py](docs/inferencer/dark_bg_detector.md)
