@@ -109,6 +109,15 @@ class Detector:
 
         return face_chip_list, face_conf
 
+    def get_face_bboxes(self, pic):
+        res = self.yolo_detect.run_detect(pic)
+        if res.size == 0:
+            return []
+        faces = res[res[:, 5] == 0]
+        if len(faces) == 0:
+            return []
+        return faces[:, :4].astype(int).tolist()
+
 
 if __name__ == '__main__':
     import time

@@ -1,1 +1,8 @@
 log_path: /mnt/pvc/pvc-ph-irisk-id9743-vol723550-stg/log/hf_xy/info_{hostname}.log
+
+dark_bg:
+  model_threshold: 0.95
+  dark_pixel_thresh: 50
+  dark_ratio_thresh: 0.6
+  bbox_expand_ratio: 0.2
+  bbox_expand_up_ratio: 0.3

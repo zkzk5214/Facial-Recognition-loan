@@ -14,6 +14,7 @@ from flask import Flask, request, jsonify
 import utils.log as logging
 
 from inferencer.face_pipeline import face_register_, get_topk, head_detection_, StatusCode
+from inferencer.dark_bg_detector import dark_bg_check
 
 WSGIRequestHandler.protocol_version = 'HTTP/1.1'
 
@@ -162,6 +163,31 @@ def head_detection():
     except Exception as e:
         logger.error("[Traceback]: " + str(traceback.format_exc()).replace('\n', '\t'))
         logger.error('\t'.join(['[ExceptionTriggered]: /head_detection', str(e), '#\n']))
+        return jsonify({'resp_code': StatusCode.ERROR.value, 'error_msg': str(e)})
+
+
+@app.route('/dark_bg_check', methods=['POST'])
+def dark_bg_check_endpoint():
+    try:
+        start_time = time.time()
+        json_data, img = process_common_request(request)
+        res = create_response(json_data)
+
+        is_dark_bg, resp_code, dark_score, bg_ratio = dark_bg_check(img)
+        res['resp_code'] = resp_code
+        res['is_dark_bg'] = is_dark_bg
+        res['dark_score'] = round(dark_score, 4)
+        res['bg_ratio'] = round(bg_ratio, 4)
+
+        latency_ms = str(int((time.time() - start_time) * 1000))
+        log_request_result(json_data, res['resp_code'], '/dark_bg_check',
+                           {'is_dark_bg': is_dark_bg, 'dark_score': dark_score,
+                            'bg_ratio': bg_ratio, 'TimeCost': latency_ms})
+        return jsonify(res)
+
+    except Exception as e:
+        logger.error("[Traceback]:" + str(traceback.format_exc()).replace('\n', ' \t'))
+        logger.error('\t'.join(['[ExceptionTriggered]: /dark_bg_check', str(e), '#\n']))
         return jsonify({'resp_code': StatusCode.ERROR.value, 'error_msg': str(e)})
 
 
