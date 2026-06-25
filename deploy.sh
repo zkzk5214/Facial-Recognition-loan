@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-ENV=${1:?Usage: $0 {dev|stg|pro}}
+ENV=${1:?Usage: $0 (dev|stg|pro)}
 export APP_ENV=$ENV
 
 case $ENV in
@@ -25,7 +25,7 @@ echo "restart done"
 
 sleep 10
 echo "[ailoan cvmodels] deploy check..."
-nohup python ./unit_test/test_localhost.py >> ./log/deploy_test.log 2>&1 &
+nohup python ./unit_test/test_localhost.py $ENV >> ./log/deploy_test.log 2>&1 &
 
 sleep 2
 curl -s http://127.0.0.1:$PORT/version/ >> ./log/deploy_test.log
