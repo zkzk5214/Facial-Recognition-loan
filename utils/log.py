@@ -83,7 +83,7 @@ def create_logger(
     log_path: str,
     logger_name: str,
     log_level: int = logging.INFO,
-    backup_days: int = 7,
+    backup_days: int = 30,
     rotate_at: str = "04:02",
 ) -> logging.Logger:
     """Create and return a configured ``logging.Logger`` with daily rotation."""

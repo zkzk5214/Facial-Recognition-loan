@@ -184,8 +184,8 @@ def dark_bg_check_endpoint():
 
         latency_ms = str(int((time.time() - start_time) * 1000))
         log_request_result(json_data, res['resp_code'], '/dark_bg_check',
-                           {'is_dark_bg': is_dark_bg, 'dark_score': dark_score,
-                            'bg_ratio': bg_ratio, 'TimeCost': latency_ms})
+                           {'is_dark_bg': res['is_dark_bg'], 'dark_score': res['dark_score'],
+                            'bg_ratio': res['bg_ratio'], 'TimeCost': latency_ms})
         return jsonify(res)
 
     except Exception as e:

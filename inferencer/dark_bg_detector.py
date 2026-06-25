@@ -1,7 +1,10 @@
 import os
+import sys
 import cv2
 import yaml
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from inferencer.image_quality import ImgQuality
 from inferencer.face_detector import Detector
@@ -58,7 +61,7 @@ def detect_bg_darkness(img_bgr, face_bbox):
         return False, 0.0
 
     dark_ratio = (bg_pixels < _dark_pixel_thresh).mean()
-    return dark_ratio > _dark_ratio_thresh, float(dark_ratio)
+    return  bool(dark_ratio > _dark_ratio_thresh), float(dark_ratio)
 
 
 def dark_bg_check(img_bgr):
@@ -84,3 +87,10 @@ def dark_bg_check(img_bgr):
         return True, 100, dark_score, 0.0
 
     return is_dark, 100, dark_score, bg_ratio
+
+
+if __name__ == '__main__':
+
+    img_bgr = cv2.imread('./unit_test/test_img/black_bg_test.jpg')
+    is_dark, resp_code, dark_score, bg_ratio = dark_bg_check(img_bgr)
+    print(f'is_dark={is_dark}, resp_code={resp_code}, dark_score={dark_score:.4f}, bg_ratio={bg_ratio:.4f}')
