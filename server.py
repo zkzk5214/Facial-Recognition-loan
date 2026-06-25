@@ -36,7 +36,10 @@ app_start_version = str(time.ctime())
 with open('./version', 'r') as f:
     code_version = f.read().strip()
 
-server_ip = str(socket.gethostbyname(socket.gethostname()))
+try:
+    server_ip = str(socket.gethostbyname(socket.gethostname()))
+except socket.gaierror:
+    server_ip = 'localhost'
 version_description = f'[IP]: {server_ip}: [APP]: {app_start_version}: [CODE]: {code_version}\n'
 
 
@@ -193,7 +196,7 @@ def dark_bg_check_endpoint():
 
 @app.route('/version/', methods=['GET'])
 def query_version():
-    gunicorn_process_count = re.sub(' {1,}', '', os.popen("pgrep gunicorn | wc").read()).split(' ')[1]
+    gunicorn_process_count = os.popen("pgrep -c gunicorn").read().strip()
     return f'{version_description}: [gunicorn]: {gunicorn_process_count}'
 
 
