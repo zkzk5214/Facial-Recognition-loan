@@ -1,4 +1,7 @@
-log_path: /mnt/pvc/pvc-ph-irisk-id9743-vol723550-stg/log/hf_xy/info_{hostname}.log
+log_path:
+  dev: ./log/info_{hostname}.log
+  stg: /mnt/pvc/pvc-ph-irisk-id9743-vol723550-stg/log/hf_xy/info_{hostname}.log
+  pro: /mnt/pvc/pvc-ph-ai-model-id10065746-vol923966-prd/szr/log/hf_xy/info_{hostname}.log
 
 dark_bg:
   model_threshold: 0.95

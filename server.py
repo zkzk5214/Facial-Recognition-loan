@@ -23,7 +23,8 @@ safe_hostname = re.sub(r'[^a-zA-Z0-9\-]', '_', hostname)
 
 with open('./config.yaml', 'r') as f:
     _config = yaml.safe_load(f)
-LOG_FILENAME = _config['log_path'].format(hostname=safe_hostname)
+env = os.environ.get('APP_ENV', 'dev')
+LOG_FILENAME = _config['log_path'][env].format(hostname=safe_hostname)
 
 try:
     logger = logging.create_logger(LOG_FILENAME, "server_logging")
