@@ -41,7 +41,7 @@ Human_Face/
 │   └── log.py             # Custom rotating file logger
 ├── resources/             # Model weight files (.onnx, .dat)
 ├── docs/                  # Module documentation
-├── unit_test/             # Integration tests
+├── unit_test/             # Integration test (single parameterized script)
 └── log/                   # Log output directory
 ```
 
@@ -61,10 +61,20 @@ pip install -r requirements.txt
 `config.yaml` at project root:
 
 ```yaml
-log_path: /path/to/log/info_{hostname}.log
+log_path:
+  dev: ./log/info_{hostname}.log
+  stg: /mnt/pvc/1/log/hf_xy/info_{hostname}.log
+  pro: /mnt/pvc/2/log/hf_xy/info_{hostname}.log
+
+dark_bg:
+  model_threshold: 0.95
+  dark_pixel_thresh: 50
+  dark_ratio_thresh: 0.6
+  bbox_expand_ratio: 0.2
+  bbox_expand_up_ratio: 0.3
 ```
 
-`{hostname}` is automatically replaced with the sanitized machine hostname at runtime.
+The `log_path` key maps environment (`dev/stg/pro`) to log file paths. The active environment is selected by the `APP_ENV` environment variable (set by `deploy.sh`). `{hostname}` is automatically replaced with the sanitized machine hostname at runtime. `dark_bg.*` keys are optional; defaults shown above are used when omitted.
 
 ## Deployment
 
@@ -179,6 +189,7 @@ Returns server IP, start time, code version, and gunicorn worker count.
 Detailed module documentation available in `docs/`:
 
 - [server.py](docs/server.md)
+- [api.md](docs/api.md) — API reference for upstream/downstream integration
 - [face_pipeline.py](docs/inferencer/face_pipeline.md)
 - [face_detector.py](docs/inferencer/face_detector.md)
 - [face_recognizer.py](docs/inferencer/face_recognizer.md)

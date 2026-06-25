@@ -5,11 +5,12 @@
 **Core Responsibility:** Provides a two-stage dark background detection pipeline — Stage 1 uses an ONNX image quality model for coarse filtering, Stage 2 uses CV-based background dark pixel ratio analysis for precise judgment.
 
 **Key Functionalities:**
-- Stage 1: Model inference via `ImgQuality` (class 2 score ≥ 0.95)
+- Stage 1: Model inference via `ImgQuality` (class 2 score ≥ `model_threshold`)
 - Stage 2: CV-based background dark pixel ratio analysis using face bounding box
 - Unified `dark_bg_check()` function returning boolean result with debug scores
 - Lazy initialization of independent model instances (not shared with `face_pipeline`)
 - Configuration-driven thresholds via `config.yaml` (`dark_bg.*`)
+- Standalone self-test via `if __name__ == '__main__'` (uses `sys.path` injection to resolve package imports)
 
 ---
 
@@ -100,6 +101,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 
 | Limitation | Detail |
 |------------|--------|
+| numpy `bool_` | `(bg_pixels < thresh).mean()` returns a `numpy.float64`, and the comparison `> _dark_ratio_thresh` yields a `numpy.bool_` which is not JSON-serializable. Explicitly cast with `bool()` before returning to the API layer (`server.py` line 188 uses `jsonify`). |
 | Stage 1 model specificity | `weights-finetune-1-40--A.onnx` is an internal model; availability tied to this project |
 | dlib dependency | `Detector` instantiation loads dlib shape predictor even though `get_face_bboxes` does not use it; pure overhead for this module |
 | Single-face assumption | Stage 2 uses only the first detected face bbox; multiple faces are ignored |
@@ -134,6 +136,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 
 ### Testing Recommendations
 
+- **Self-test via `__main__`**: Run `python inferencer/dark_bg_detector.py` to test with `./unit_test/test_img/black_bg_test.jpg` directly (requires model files in `./resources/`).
 - **Dark background image**: Verify `is_dark_bg=True`, `dark_score ≥ 0.95`, `bg_ratio > 0.6`
 - **Normal lighting image**: Verify `is_dark_bg=False` (should exit at Stage 1)
 - **No face image**: Verify `resp_code=300`, `is_dark_bg=False`

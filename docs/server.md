@@ -102,7 +102,7 @@ HTTP POST (JSON with base64 image)
 
 ### Preconditions
 
-- `config.yaml` must exist at project root with `log_path` key
+- `config.yaml` must exist at project root with `log_path` as a nested dict keyed by environment (`dev`/`stg`/`pro`); the active key is selected by the `APP_ENV` environment variable (fallback: `'dev'`).
 - `./version` file must exist (read at startup)
 - All model weight files must be present (loaded transitively via `face_pipeline` import)
 - Request JSON must contain `recordID`, `sessionID`, `msgID` fields
@@ -112,7 +112,7 @@ HTTP POST (JSON with base64 image)
 - **Single-threaded by default** (`threaded=False`): Production relies on gunicorn for concurrency
 - **No request size limit**: Large base64 images could cause memory issues
 - **`json.loads(json_data['faceFeature'])` parsing**: If client sends malformed feature string, will raise exception (caught by try/except)
-- **`os.popen` in `/version/`**: Spawns a shell process on every call; not ideal for high-frequency health checks
+- **`os.popen` in `/version/`**: Uses `pgrep -c gunicorn` (subprocess call on every request); acceptable for health checks but not for high-frequency polling.
 - **Logging includes raw `imgData`** in warnings: Base64 image data in logs causes massive log file sizes
 - **`/dark_bg_check` loads two independent ONNX models** (ImgQuality + YOLO): Additional GPU memory; total 5 models loaded at startup
 
