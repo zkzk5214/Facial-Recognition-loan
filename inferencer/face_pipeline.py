@@ -155,7 +155,7 @@ def head_detection_(img):
 
 RESOURCE_PATH = './resources/'
 
-quality_detector = ImgQuality(os.path.join(RESOURCE_PATH, 'weights-finetune-l-40--A.onnx'))
+quality_detector = ImgQuality(os.path.join(RESOURCE_PATH, 'weights-finetune-1-40--A.onnx'))
 blur_detector = BlurDetection(weights=os.path.join(RESOURCE_PATH, 'blur_0727.onnx'))
 face_detector = Detector(weights=os.path.join(RESOURCE_PATH, 'arcface_weights_best_new.onnx'),
                          sp=os.path.join(RESOURCE_PATH, 'shape_predictor_68_face_landmarks.dat'))
