@@ -6,6 +6,6 @@ log_path:
 dark_bg:
   model_threshold: 0.95
   dark_pixel_thresh: 50
-  dark_ratio_thresh: 0.5
+  dark_ratio_thresh: 0.75
   bbox_expand_ratio: 0.0
   bbox_expand_up_ratio: 0.1

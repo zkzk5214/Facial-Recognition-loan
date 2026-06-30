@@ -18,9 +18,9 @@ with open('./config.yaml', 'r') as f:
 _dark_bg_cfg = _config.get('dark_bg', {})
 _model_threshold = float(_dark_bg_cfg.get('model_threshold', 0.95))
 _dark_pixel_thresh = int(_dark_bg_cfg.get('dark_pixel_thresh', 50))
-_dark_ratio_thresh = float(_dark_bg_cfg.get('dark_ratio_thresh', 0.6))
-_bbox_expand_ratio = float(_dark_bg_cfg.get('bbox_expand_ratio', 0.2))
-_bbox_expand_up_ratio = float(_dark_bg_cfg.get('bbox_expand_up_ratio', 0.3))
+_dark_ratio_thresh = float(_dark_bg_cfg.get('dark_ratio_thresh', 0.75))
+_bbox_expand_ratio = float(_dark_bg_cfg.get('bbox_expand_ratio', 0.0))
+_bbox_expand_up_ratio = float(_dark_bg_cfg.get('bbox_expand_up_ratio', 0.1))
 
 _quality_detector = None
 _face_detector = None

@@ -74,7 +74,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 | **Purpose** | CV-based dark pixel ratio analysis on background region |
 | **Parameters** | `img_bgr`: `np.ndarray` (BGR, HWC, uint8); `face_bbox`: `[x1, y1, x2, y2]` (int) |
 | **Return** | `(bool, float)` — whether background is dark, and the dark pixel ratio. Returns `(False, -1.0)` as sentinel when no background pixels exist (face fills image). Returns `(False, 0.0)` when background exists but has zero dark pixels. |
-| **Core Logic** | 1. Convert to grayscale (`cv2.COLOR_BGR2GRAY`, BT.601); 2. Expand bbox (up: 30%, other: 20% of bbox size); 3. Clip expanded bbox to image boundaries; 4. Create mask: face = 0, bg = 255; 5. Count dark pixels (gray < `dark_pixel_thresh`) in bg region; 6. If `dark_ratio > dark_ratio_thresh` → dark background |
+| **Core Logic** | 1. Convert to grayscale (`cv2.COLOR_BGR2GRAY`, BT.601); 2. Expand bbox (up: 10%, other: 0% of bbox size); 3. Clip expanded bbox to image boundaries; 4. Create mask: face = 0, area below face = 0 (exclude clothing), bg = 255; 5. Count dark pixels (gray < `dark_pixel_thresh`) in bg region; 6. If `dark_ratio > dark_ratio_thresh` → dark background |
 
 ---
 
@@ -123,7 +123,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 | Zone | Safety | Notes |
 |------|--------|-------|
 | Config thresholds in `config.yaml` | Safe | `dark_bg.*` values can be tuned without code changes |
-| `detect_bg_darkness` expand ratios | Safe | Can adjust up/down expand ratios independently |
+| `detect_bg_darkness` expand ratios | Safe | Can adjust up/down expand ratios independently (defaults: up=10%, other=0%) |
 | `detect_bg_darkness` dark pixel definition | Safe | Can switch to HSV value-channel or add color bias |
 | Stage 1 model path | Moderate | Must match model input/output spec (320×240, 4-class) |
 | `dark_bg_check` return tuple format | Caution | `server.py` expects `(bool, int, float, float)` |
@@ -138,8 +138,8 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 ### Testing Recommendations
 
 - **Self-test via `__main__`**: Run `python inferencer/dark_bg_detector.py` to test with `./unit_test/test_img/black_bg_test.jpg` directly (requires model files in `./resources/`).
-- **Dark background image**: Verify `is_dark_bg=True`, `dark_score ≥ 0.95`, `bg_ratio > 0.6`
+- **Dark background image**: Verify `is_dark_bg=True`, `dark_score ≥ 0.95`, `bg_ratio > 0.75`
 - **Normal lighting image**: Verify `is_dark_bg=False` (should exit at Stage 1)
 - **No face image**: Verify `resp_code=300`, `is_dark_bg=False`
-- **Face-filling image (no background)**: Verify fallback to Stage 1 result when `bg_ratio=0.0`
+- **Face-filling image (no background)**: Verify fallback to Stage 1 result when `bg_ratio=-1.0` (sentinel)
 - **Config hot-reload test**: Change `dark_bg.dark_ratio_thresh` in yaml and verify new threshold takes effect on restart
