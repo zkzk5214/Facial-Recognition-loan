@@ -55,6 +55,7 @@ def detect_bg_darkness(img_bgr, face_bbox):
 
     mask = np.ones((h, w), dtype=np.uint8) * 255
     mask[y1:y2, x1:x2] = 0
+    mask[y2:, :] = 0
 
     bg_pixels = gray[mask == 255]
     if len(bg_pixels) == 0:
