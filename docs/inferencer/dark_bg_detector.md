@@ -45,8 +45,9 @@ Input (np.ndarray BGR image)
     └─ Stage 2: _face_detector.get_face_bboxes(img)
           ├─ no faces → return (False, 300, dark_score, 0.0)
           └─ has faces → detect_bg_darkness(img, face_bbox)
-                ├─ bg_pixels == 0 → return (True, 100, dark_score, 0.0) [fallback to stage1]
-                └─ bg_pixels > 0 → return (is_dark, 100, dark_score, bg_ratio)
+                ├─ bg_pixels == 0 → return (False, -1.0) [sentinel: no bg → triggers fallback to stage1]
+                ├─ bg_pixels > 0, dark_ratio == 0.0 → return (False, 0.0) [bg exists but no dark pixels]
+                └─ bg_pixels > 0, dark_ratio > 0.0 → return (is_dark, 100, dark_score, bg_ratio)
 
 Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 ```
@@ -72,7 +73,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 |------|--------|
 | **Purpose** | CV-based dark pixel ratio analysis on background region |
 | **Parameters** | `img_bgr`: `np.ndarray` (BGR, HWC, uint8); `face_bbox`: `[x1, y1, x2, y2]` (int) |
-| **Return** | `(bool, float)` — whether background is dark, and the dark pixel ratio |
+| **Return** | `(bool, float)` — whether background is dark, and the dark pixel ratio. Returns `(False, -1.0)` as sentinel when no background pixels exist (face fills image). Returns `(False, 0.0)` when background exists but has zero dark pixels. |
 | **Core Logic** | 1. Convert to grayscale (`cv2.COLOR_BGR2GRAY`, BT.601); 2. Expand bbox (up: 30%, other: 20% of bbox size); 3. Clip expanded bbox to image boundaries; 4. Create mask: face = 0, bg = 255; 5. Count dark pixels (gray < `dark_pixel_thresh`) in bg region; 6. If `dark_ratio > dark_ratio_thresh` → dark background |
 
 ---
@@ -84,7 +85,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 | **Purpose** | Unified two-stage dark background detection entry point |
 | **Parameters** | `img_bgr`: `np.ndarray` (BGR) — full input image |
 | **Return** | `(is_dark_bg, resp_code, dark_score, bg_ratio)` — final judgment with debug scores |
-| **Core Logic** | Stage 1: model inference → early exit if not dark class or score < threshold; Stage 2: detect face bbox → no face → resp=300; has face → CV analysis; if bg pixel count = 0 → fallback to stage1 result; otherwise → stage2 result |
+| **Core Logic** | Stage 1: model inference → early exit if not dark class or score < threshold; Stage 2: detect face bbox → no face → resp=300; has face → CV analysis; if bg ratio == -1.0 (sentinel, no bg pixels) → fallback to stage1 result; otherwise (bg ratio >= 0) → stage2 result |
 
 ---
 

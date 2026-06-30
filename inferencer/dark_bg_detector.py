@@ -58,7 +58,7 @@ def detect_bg_darkness(img_bgr, face_bbox):
 
     bg_pixels = gray[mask == 255]
     if len(bg_pixels) == 0:
-        return False, 0.0
+        return False, -1.0
 
     dark_ratio = (bg_pixels < _dark_pixel_thresh).mean()
     return  bool(dark_ratio > _dark_ratio_thresh), float(dark_ratio)
@@ -82,7 +82,7 @@ def dark_bg_check(img_bgr):
 
     is_dark, bg_ratio = detect_bg_darkness(img_bgr, face_bboxes[0])
 
-    if bg_ratio == 0.0:
+    if bg_ratio == -1.0:
         # background pixel count = 0, fall back to stage1 result
         return True, 100, dark_score, 0.0
 
