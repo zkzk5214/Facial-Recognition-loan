@@ -87,16 +87,18 @@ def main():
             dst_dir = dir_noface
             noface_count += 1
             label = "NOFACE"
+            print(f"{label} | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f} resp_code={resp_code}")
+
         elif is_dark_bg:
             dst_dir = dir_dark
             dark_count += 1
             label = "DARK"
+            print(f"{label} | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f} resp_code={resp_code}")
         else:
             dst_dir = dir_normal
             normal_count += 1
             label = "NORMAL"
         shutil.copy2(src_path, os.path.join(dst_dir, fname))
-        print(f"{label} | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f} resp_code={resp_code}")
 
         time.sleep(0.01)
 
