@@ -97,7 +97,7 @@ def load_test(base):
 
 if __name__ == '__main__':
     env = sys.argv[1] if len(sys.argv) > 1 else 'pro'
-    port = 37709 if env == 'dev' else 80
+    port = 37701 if env == 'dev' else 80
     base = f'http://127.0.0.1:{port}'
 
     if env == 'pro':
