@@ -72,33 +72,32 @@ def main():
 
     for idx, fname in enumerate(jpg_files, 1):
         src_path = os.path.join(input_dir, fname)
-        print(f"[{idx}/{total}] {fname} ... ", end='', flush=True)
 
         try:
             is_dark_bg, dark_score, bg_ratio, resp_code = check_dark_bg(
                 src_path, base_url, timeout=args.timeout
             )
         except Exception as e:
-            print(f"FAILED: {e}")
+            print(f"[{idx}/{total}] {fname} FAILED: {e}")
             failed.append(fname)
             continue
 
         if resp_code == 300:
             dst_dir = dir_noface
             noface_count += 1
-            label = "NOFACE"
-            print(f"{label} | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f} resp_code={resp_code}")
-
+            print(f"[{idx}/{total}] {fname} NOFACE | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f}")
         elif is_dark_bg:
             dst_dir = dir_dark
             dark_count += 1
-            label = "DARK"
-            print(f"{label} | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f} resp_code={resp_code}")
+            print(f"[{idx}/{total}] {fname} DARK   | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f}")
         else:
             dst_dir = dir_normal
             normal_count += 1
-            label = "NORMAL"
+
         shutil.copy2(src_path, os.path.join(dst_dir, fname))
+
+        if idx % 50 == 0 or idx == total:
+            print(f"  >>> [{idx}/{total}] DARK={dark_count} NORMAL={normal_count} NOFACE={noface_count} FAIL={len(failed)}")
 
         time.sleep(0.01)
 
