@@ -23,7 +23,7 @@ safe_hostname = re.sub(r'[^a-zA-Z0-9\-]', '_', hostname)
 
 with open('./config.yaml', 'r') as f:
     _config = yaml.safe_load(f)
-env = os.environ.get('APP_ENV', 'dev')
+env = os.environ.get('APP_ENV', 'pro')
 LOG_FILENAME = _config['log_path'][env].format(hostname=safe_hostname)
 
 try:
