@@ -69,9 +69,11 @@ log_path:
 dark_bg:
   model_threshold: 0.95
   dark_pixel_thresh: 50
-  dark_ratio_thresh: 0.6
-  bbox_expand_ratio: 0.2
-  bbox_expand_up_ratio: 0.3
+  dark_ratio_thresh: 0.75
+  bright_pixel_thresh: 150
+  bright_ratio_thresh: 0.1
+  bbox_expand_ratio: 0.0
+  bbox_expand_up_ratio: 0.1
 ```
 
 The `log_path` key maps environment (`dev/stg/pro`) to log file paths. The active environment is selected by the `APP_ENV` environment variable (set by `deploy.sh`). `{hostname}` is automatically replaced with the sanitized machine hostname at runtime. `dark_bg.*` keys are optional; defaults shown above are used when omitted.

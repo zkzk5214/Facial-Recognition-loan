@@ -39,17 +39,16 @@
 Input (np.ndarray BGR image)
     │
     ├─ Stage 1: _quality_detector.detect(img) → 4-class scores
-    │     ├─ argmax ≠ 2 or dark_score < 0.95 → return (False, 100, dark_score, 0.0)
+    │     ├─ argmax ≠ 2 or dark_score < 0.95 → return (False, 100, dark_score, 0.0, 0.0)
     │     └─ pass → proceed to Stage 2
     │
     └─ Stage 2: _face_detector.get_face_bboxes(img)
-          ├─ no faces → return (False, 300, dark_score, 0.0)
+          ├─ no faces → return (False, 300, dark_score, 0.0, 0.0)
           └─ has faces → detect_bg_darkness(img, face_bbox)
-                ├─ bg_pixels == 0 → return (False, -1.0) [sentinel: no bg → triggers fallback to stage1]
-                ├─ bg_pixels > 0, dark_ratio == 0.0 → return (False, 0.0) [bg exists but no dark pixels]
-                └─ bg_pixels > 0, dark_ratio > 0.0 → return (is_dark, 100, dark_score, bg_ratio)
+                ├─ bg_pixels == 0 → return (False, -1.0, -1.0) [sentinel: no bg → triggers fallback to stage1]
+                ├─ bg_pixels > 0 → return (is_dark, dark_ratio, bright_ratio)
 
-Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
+Output: (is_dark_bg: bool, resp_code: int, dark_score: float, dk_ratio: float, br_ratio: float)
 ```
 
 ---
@@ -73,8 +72,8 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 |------|--------|
 | **Purpose** | CV-based dark pixel ratio analysis on background region |
 | **Parameters** | `img_bgr`: `np.ndarray` (BGR, HWC, uint8); `face_bbox`: `[x1, y1, x2, y2]` (int) |
-| **Return** | `(bool, float)` — whether background is dark, and the dark pixel ratio. Returns `(False, -1.0)` as sentinel when no background pixels exist (face fills image). Returns `(False, 0.0)` when background exists but has zero dark pixels. |
-| **Core Logic** | 1. Convert to grayscale (`cv2.COLOR_BGR2GRAY`, BT.601); 2. Expand bbox (up: 10%, other: 0% of bbox size); 3. Clip expanded bbox to image boundaries; 4. Create mask: face = 0, area below face = 0 (exclude clothing), bg = 255; 5. Count dark pixels (gray < `dark_pixel_thresh`) in bg region; 6. If `dark_ratio > dark_ratio_thresh` → dark background |
+| **Return** | `(bool, float, float)` — whether background is dark, dark pixel ratio, and bright pixel ratio. Returns `(False, -1.0, -1.0)` as sentinel when no background pixels exist (face fills image). |
+| **Core Logic** | 1. Convert to grayscale (`cv2.COLOR_BGR2GRAY`, BT.601); 2. Expand bbox (up: 10%, other: 0% of bbox size); 3. Clip expanded bbox to image boundaries; 4. Create mask: face = 0, area below face = 0 (exclude clothing), bg = 255; 5. Count dark pixels (gray < `dark_pixel_thresh`) and bright pixels (gray > `bright_pixel_thresh`) in bg region; 6. If `dark_ratio > dark_ratio_thresh` AND `bright_ratio < bright_ratio_thresh` → dark background |
 
 ---
 
@@ -84,8 +83,8 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 |------|--------|
 | **Purpose** | Unified two-stage dark background detection entry point |
 | **Parameters** | `img_bgr`: `np.ndarray` (BGR) — full input image |
-| **Return** | `(is_dark_bg, resp_code, dark_score, bg_ratio)` — final judgment with debug scores |
-| **Core Logic** | Stage 1: model inference → early exit if not dark class or score < threshold; Stage 2: detect face bbox → no face → resp=300; has face → CV analysis; if bg ratio == -1.0 (sentinel, no bg pixels) → fallback to stage1 result; otherwise (bg ratio >= 0) → stage2 result |
+| **Return** | `(is_dark_bg, resp_code, dark_score, dk_ratio, br_ratio)` — final judgment with debug scores |
+| **Core Logic** | Stage 1: model inference → early exit if not dark class or score < threshold; Stage 2: detect face bbox → no face → resp=300; has face → CV analysis; if dk_ratio == -1.0 (sentinel, no bg pixels) → fallback to stage1 result; otherwise (dk_ratio >= 0) → stage2 result |
 
 ---
 
@@ -126,7 +125,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 | `detect_bg_darkness` expand ratios | Safe | Can adjust up/down expand ratios independently (defaults: up=10%, other=0%) |
 | `detect_bg_darkness` dark pixel definition | Safe | Can switch to HSV value-channel or add color bias |
 | Stage 1 model path | Moderate | Must match model input/output spec (320×240, 4-class) |
-| `dark_bg_check` return tuple format | Caution | `server.py` expects `(bool, int, float, float)` |
+| `dark_bg_check` return tuple format | Caution | `server.py` expects `(bool, int, float, float, float)` |
 
 ### Common Refactoring Pitfalls
 
@@ -138,8 +137,9 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, bg_ratio: float)
 ### Testing Recommendations
 
 - **Self-test via `__main__`**: Run `python inferencer/dark_bg_detector.py` to test with `./unit_test/test_img/black_bg_test.jpg` directly (requires model files in `./resources/`).
-- **Dark background image**: Verify `is_dark_bg=True`, `dark_score ≥ 0.95`, `bg_ratio > 0.75`
+- **Dark background image**: Verify `is_dark_bg=True`, `dark_score ≥ 0.95`, `dk_ratio > 0.75`, `br_ratio < 0.1`
 - **Normal lighting image**: Verify `is_dark_bg=False` (should exit at Stage 1)
 - **No face image**: Verify `resp_code=300`, `is_dark_bg=False`
-- **Face-filling image (no background)**: Verify fallback to Stage 1 result when `bg_ratio=-1.0` (sentinel)
+- **Face-filling image (no background)**: Verify fallback to Stage 1 result when `dk_ratio=-1.0` (sentinel)
+- **Dark interior with bright spot (e.g. car with window)**: Verify `is_dark_bg=False` (bright_ratio exceeds threshold)
 - **Config hot-reload test**: Change `dark_bg.dark_ratio_thresh` in yaml and verify new threshold takes effect on restart

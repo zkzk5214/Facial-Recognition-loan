@@ -81,7 +81,7 @@ HTTP POST (JSON with base64 image)
 |------|--------|
 | **Purpose** | Two-stage dark background detection for face registration images |
 | **Request** | JSON with `recordID`, `sessionID`, `msgID`, `imgData` (base64 BGR image) |
-| **Response** | `{resp_code, is_dark_bg, dark_score, bg_ratio}` — resp_code: 100=normal, 300=no face, 999=error |
+| **Response** | `{resp_code, is_dark_bg, dark_score, dk_ratio, br_ratio}` — resp_code: 100=normal, 300=no face, 999=error |
 | **Flow** | Decode image → `dark_bg_check()` → Stage 1: model inference (class 2 ≥ 0.95) → Stage 2: CV background dark pixel ratio → return result |
 
 ---
