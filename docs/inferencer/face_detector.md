@@ -77,7 +77,8 @@ Input (np.ndarray BGR image)
 | **Purpose** | Align a face using dlib's 68-landmark model |
 | **Parameters** | `img_rgb`: RGB image; `x1,y1,x2,y2`: face bbox; `size`: output chip size |
 | **Return** | `np.ndarray` — aligned face (RGB, `size x size`) |
-| **Core Logic** | Predict 68 landmarks within rectangle, call `dlib.get_face_chip` for affine alignment |
+| **Core Logic** | Predict 68 landmarks within rectangle, ensure contiguous memory via `np.ascontiguousarray`, call `dlib.get_face_chip` for affine alignment |
+| **Contiguity Fix** | `np.ascontiguousarray(img_rgb)` prevents pybind11 type mismatch when non-contiguous numpy views (e.g., crop slices) are passed to dlib |
 
 ---
 
@@ -99,7 +100,8 @@ Input (np.ndarray BGR image)
 | **Purpose** | Recover incomplete faces by expanding bbox 15% and re-detecting |
 | **Parameters** | Same as face bbox coordinates + alignment params |
 | **Return** | Aligned face (RGB) or `None` if retry fails |
-| **Core Logic** | Expand bbox by `EXPAND_RATIO` → crop → convert to BGR for YOLO → re-detect → validate exactly 1 complete face → rotate and align |
+| **Core Logic** | Expand bbox by `EXPAND_RATIO` → crop with `.copy()` for contiguous array → convert to BGR for YOLO → re-detect → validate exactly 1 complete face → rotate and align |
+| **Contiguity Fix** | `.copy()` on the crop slice ensures the array is C-contiguous before passing through `_rotate_and_align` to dlib |
 
 ---
 
@@ -121,6 +123,10 @@ Input (np.ndarray BGR image)
 - YOLO ONNX model and dlib 68-landmark `.dat` file must exist
 - Input image must be BGR `np.ndarray` (uint8, 3 channels)
 - `complete_face` expects `face_dict` with string keys `'0','1','2','3'`
+
+### Known Issues & Resolved Bugs
+
+- **2026-07-09: dlib TypeError on non-contiguous arrays** — `_retry_incomplete_face`中切片`pic_rgb[...:... , :]`产生numpy view，非C-contiguous。当走非旋转分支时，该view直传`dlib.get_face_chip()`，pybind11参数匹配失败抛`TypeError`。修复：切片处加`.copy()`，`_align_face`中加`np.ascontiguousarray()`兜底，保证传给dlib的数组始终连续。
 
 ### Known Limitations
 

@@ -166,7 +166,7 @@ class Detector:
         """Align a face using dlib's 68-landmark model. Expects RGB input."""
         rec = dlib.rectangle(x1, y1, x2, y2)
         shape = self.sp(img_rgb, rec)
-        return dlib.get_face_chip(img_rgb, shape, size)
+        return dlib.get_face_chip(np.ascontiguousarray(img_rgb), shape, size)
 
     def _rotate_and_align(self, img_rgb, rotate_para, x1, y1, x2, y2, size, angle_threshold):
         """Rotate face if needed, then align with dlib."""
@@ -190,7 +190,7 @@ class Detector:
         new_x2 = min(w, int(x2 + expand * (x2 - x1)))
         new_y2 = min(h, int(y2 + expand * (y2 - y1)))
 
-        new_pic = pic_rgb[new_y1:new_y2, new_x1:new_x2, :]
+        new_pic = pic_rgb[new_y1:new_y2, new_x1:new_x2, :].copy()
         new_pic_bgr = cv2.cvtColor(new_pic, cv2.COLOR_RGB2BGR)
         new_res = self.yolo_detect.run_detect(new_pic_bgr)
 
