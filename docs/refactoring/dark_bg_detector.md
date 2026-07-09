@@ -38,7 +38,10 @@
 │           → 按 Stage1 结果输出  │
 │     └─ 暗像素占比 > 75%?      │
 │         AND 亮像素占比 < 10%? │
-│        ↓ 是/否                │
+│        ↓ 是 (is_dark_bg)      │
+│  计算 darkness_level:         │
+│    non_dark 平均灰度 → 评分    │
+│  输出: is_dark_bg, darkness   │
 │  输出: is_dark_bg             │
 └──────────────────────────────┘
 
@@ -75,7 +78,7 @@ is_dark_bg = (无人脸 → False, resp=300)
   - 背景区域构造：mask 中全图=255，人脸 bbox 区域=0，脸部下方区域=0（排除衣物干扰）
   - 背景区域（全图 — 扩展后的人脸 bbox — 脸部下方）中，亮度 < `dark_pixel_thresh` 的像素计为"暗像素"，亮度 > `bright_pixel_thresh` 的像素计为"亮像素"
   - 若背景像素数为 0（人脸 bbox 覆盖全图）→ 无背景可判，返回 sentinel -1.0，`is_dark_bg` 按 Stage1 结果输出
-  - 若暗像素数 / 背景区域总像素数 > `dark_ratio_thresh` **且** 亮像素占比 < `bright_ratio_thresh`，判定为黑背景
+  - 若暗像素数 / 背景区域总像素数 > `dark_ratio_thresh` **且** 亮像素占比 < `bright_ratio_thresh`，判定为黑背景，并取背景中非暗区像素灰度均值取反乘 100，输出 `darkness_level`（0~100，越接近 100 越昏黑）
 - **作用**: 精确检查——确认「画面暗」不是因为「人脸本身暗」（如肤色深、逆光人脸），而是因为「背景区域黑」
 
 ### 判定逻辑总结
@@ -128,6 +131,7 @@ else:
 | `dark_score` | float | Stage1 模型 class 2 的得分 |
 | `dk_ratio` | float | Stage2 背景暗像素占比 |
 | `br_ratio` | float | Stage2 背景亮像素占比 |
+| `darkness_level` | float | 图片昏暗评分（仅 is_dark_bg=true 时有意义），基于背景非暗区灰度均值，0~100，值越大越昏黑 |
 
 ## 6. 边界情况处理
 

@@ -61,12 +61,24 @@ def detect_bg_darkness(img_bgr, face_bbox):
 
     bg_pixels = gray[mask == 255]
     if len(bg_pixels) == 0:
-        return False, -1.0
+        return False, -1.0, 0.0
 
     dark_ratio = (bg_pixels < _dark_pixel_thresh).mean()
     bright_ratio = (bg_pixels > _bright_pixel_thresh).mean()
-    is_dark = (dark_ratio > _dark_ratio_thresh) and (bright_ratio < _bright_ratio_thresh)
-    return bool(is_dark), float(dark_ratio), float(bright_ratio)
+    is_dark = bool(dark_ratio > _dark_ratio_thresh) and (bright_ratio < _bright_ratio_thresh)
+
+    if is_dark:
+        non_dark = bg_pixels[bg_pixels >= _dark_pixel_thresh]
+        if len(non_dark) == 0:
+            darkness_level = 1.0
+        else:
+            darkness_level = 1.0 - (float(non_dark.mean()) / 255.0)
+        darkness_level *= 100.0
+        darkness_level = round(darkness_level, 4)
+    else:
+        darkness_level = 0.0
+
+    return bool(is_dark), float(dark_ratio), float(bright_ratio), darkness_level
 
 
 def dark_bg_check(img_bgr):
@@ -78,24 +90,24 @@ def dark_bg_check(img_bgr):
     # Stage 1: model check
     stage1_pass = np.argmax(scores) == 2 and dark_score >= _model_threshold
     if not stage1_pass:
-        return False, 100, dark_score, 0.0, 0.0
+        return False, 100, dark_score, 0.0, 0.0, 0.0
 
     # Stage 2: CV background check
     face_bboxes = _face_detector.get_face_bboxes(img_bgr)
     if not face_bboxes:
-        return False, StatusCode.NOFACE.value, dark_score, 0.0, 0.0
+        return False, StatusCode.NOFACE.value, dark_score, 0.0, 0.0, 0.0
 
-    is_dark, dk_ratio, br_ratio = detect_bg_darkness(img_bgr, face_bboxes[0])
+    is_dark, dk_ratio, br_ratio, darkness_level = detect_bg_darkness(img_bgr, face_bboxes[0])
 
     if dk_ratio == -1.0:
         # background pixel count = 0, fall back to stage1 result
-        return True, 100, dark_score, 0.0, 0.0
+        return True, 100, dark_score, 0.0, 0.0, 0.0
 
-    return is_dark, 100, dark_score, dk_ratio, br_ratio
+    return is_dark, 100, dark_score, dk_ratio, br_ratio, darkness_level
 
 
 if __name__ == '__main__':
 
     img_bgr = cv2.imread('./unit_test/test_img/black_bg_test.jpg')
-    is_dark, resp_code, dark_score, dk_ratio, br_ratio = dark_bg_check(img_bgr)
-    print(f'is_dark={is_dark}, resp_code={resp_code}, dark_score={dark_score:.4f}, dk_ratio={dk_ratio:.4f}, br_ratio={br_ratio:.4f}')
+    is_dark, resp_code, dark_score, dk_ratio, br_ratio, darkness_level = dark_bg_check(img_bgr)
+    print(f'is_dark={is_dark}, resp_code={resp_code}, dark_score={dark_score:.4f}, dk_ratio={dk_ratio:.4f}, br_ratio={br_ratio:.4f}, darkness_level={darkness_level:.4f}')
