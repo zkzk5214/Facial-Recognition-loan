@@ -30,9 +30,10 @@ def check_dark_bg(image_path, base_url, timeout=30):
 
     is_dark_bg = result.get('is_dark_bg', False)
     dark_score = result.get('dark_score', 0)
-    bg_ratio = result.get('bg_ratio', 0)
+    dk_ratio = result.get('dk_ratio', 0)
+    br_ratio = result.get('br_ratio', 0)
     resp_code = result.get('resp_code', -1)
-    return is_dark_bg, dark_score, bg_ratio, resp_code
+    return is_dark_bg, dark_score, dk_ratio, br_ratio, resp_code
 
 
 def main():
@@ -74,7 +75,7 @@ def main():
         src_path = os.path.join(input_dir, fname)
 
         try:
-            is_dark_bg, dark_score, bg_ratio, resp_code = check_dark_bg(
+            is_dark_bg, dark_score, dk_ratio, br_ratio, resp_code = check_dark_bg(
                 src_path, base_url, timeout=args.timeout
             )
         except Exception as e:
@@ -85,11 +86,11 @@ def main():
         if resp_code == 300:
             dst_dir = dir_noface
             noface_count += 1
-            print(f"[{idx}/{total}] {fname} NOFACE | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f}")
+            print(f"[{idx}/{total}] {fname} NOFACE | dark_score={dark_score:.4f} dk_ratio={dk_ratio:.4f} br_ratio={br_ratio:.4f}")
         elif is_dark_bg:
             dst_dir = dir_dark
             dark_count += 1
-            print(f"[{idx}/{total}] {fname} DARK   | dark_score={dark_score:.4f} bg_ratio={bg_ratio:.4f}")
+            print(f"[{idx}/{total}] {fname} DARK   | dark_score={dark_score:.4f} dk_ratio={dk_ratio:.4f} br_ratio={br_ratio:.4f}")
         else:
             dst_dir = dir_normal
             normal_count += 1
