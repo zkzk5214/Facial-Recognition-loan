@@ -177,21 +177,25 @@ def dark_bg_check_endpoint():
         json_data, img = process_common_request(request)
         res = create_response(json_data)
 
-        is_dark_bg, resp_code, dark_score, dk_ratio, spot_ratio, patch_ratio, darkness_level = dark_bg_check(img)
+        is_dark_bg, resp_code, _, dk_ratio, spot_ratio, patch_ratio, darkness_level = dark_bg_check(img)
         res['resp_code'] = resp_code
         res['is_dark_bg'] = is_dark_bg
-        res['dark_score'] = round(dark_score, 4)
-        res['dk_ratio'] = round(dk_ratio, 4)
-        res['spot_ratio'] = round(spot_ratio, 4)
-        res['patch_ratio'] = round(patch_ratio, 4)
-        res['darkness_level'] = int(darkness_level)
+        res['dark_score'] = darkness_level
+        res['bg_ratio'] = round(dk_ratio, 4)
+
+        if resp_code == StatusCode.NOFACE.value:
+            log_warning('Warning-NoFace', '/dark_bg_check', json_data,
+                        resp_code, json_data['imgData'])
+        elif is_dark_bg:
+            log_warning('Warning-DarkBg', '/dark_bg_check', json_data,
+                        resp_code, json_data['imgData'])
 
         latency_ms = str(int((time.time() - start_time) * 1000))
         log_request_result(json_data, res['resp_code'], '/dark_bg_check',
                            {'is_dark_bg': res['is_dark_bg'], 'dark_score': res['dark_score'],
-                            'dk_ratio': res['dk_ratio'], 'spot_ratio': res['spot_ratio'],
-                            'patch_ratio': res['patch_ratio'],
-                            'darkness_level': res['darkness_level'], 'TimeCost': latency_ms})
+                            'bg_ratio': res['bg_ratio'],
+                            'spot_ratio': round(spot_ratio, 4),'patch_ratio': round(patch_ratio, 4),
+                            'TimeCost': latency_ms})
         return jsonify(res)
 
     except Exception as e:

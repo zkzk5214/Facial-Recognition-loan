@@ -102,7 +102,6 @@ def detect_bg_darkness(img_bgr, face_bbox):
             darkness_level = 1.0
         else:
             darkness_level = 1.0 - (float(non_dark.mean()) / 255.0)
-        darkness_level *= 100.0
         darkness_level = round(darkness_level, 4)
     else:
         darkness_level = 0.0
@@ -119,17 +118,17 @@ def dark_bg_check(img_bgr):
     # Stage 1: model check
     stage1_pass = np.argmax(scores) == 2 and dark_score >= _model_threshold
     if not stage1_pass:
-        return False, 100, dark_score, 0.0, 0.0, 0.0
+        return False, 100, dark_score, 0.0, 0.0, 0.0, 0.0
 
     # Stage 2: CV background check
     face_bboxes = _face_detector.get_face_bboxes(img_bgr)
     if not face_bboxes:
-        return False, StatusCode.NOFACE.value, dark_score, 0.0, 0.0, 0.0
+        return False, StatusCode.NOFACE.value, dark_score, 0.0, 0.0, 0.0, 0.0
 
     is_dark, dk_ratio, spot_ratio, patch_ratio, darkness_level = detect_bg_darkness(img_bgr, face_bboxes[0])
 
     if dk_ratio == -1.0:
-        return True, 100, dark_score, 0.0, 0.0, 0.0
+        return True, 100, dark_score, 0.0, 0.0, 0.0, 0.0
 
     return is_dark, 100, dark_score, dk_ratio, spot_ratio, patch_ratio, darkness_level
 
