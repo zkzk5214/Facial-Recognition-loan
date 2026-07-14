@@ -169,9 +169,7 @@ else:
 
 ## 7. 模块依赖
 
-- `inferencer/image_quality.py` — `ImgQuality` 类（Stage1 模型推理）
-- `inferencer/face_detector.py` — `Detector.get_face_bboxes()` 方法（Stage2 人脸定位,需新增）
-- `inferencer/face_pipeline.py` — `StatusCode` 枚举（复用 `StatusCode.NOFACE`）
+- `inferencer/face_pipeline.py` — 复用 `quality_detector`（Stage1 模型推理）、`face_detector`（Stage2 人脸定位）、`StatusCode.NOFACE`（300）
 - `config.yaml` — 阈值配置读取
 
 ## 8. 文件改动概要
@@ -186,10 +184,10 @@ else:
 ## 9. 与 face_pipeline 的关系
 
 - `/dark_bg_check` 是完全独立的 HTTP 端点，不被 `face_pipeline` 内部调用，也不消费 `face_register_` / `head_detection_` 的任何结果
-- 复用 `ImgQuality` 和 `Detector` 两个底层类，但各持独立实例（不共享 `face_pipeline` 的模块级单例）
-- 无人脸场景下复用 `StatusCode.NOFACE`（300），仅此一处符号级依赖
+- 直接复用 `face_pipeline` 的模块级实例 `quality_detector` 和 `face_detector`，避免重复加载 ONNX 模型，节省显存
+- 无人脸场景下复用 `StatusCode.NOFACE`（300）
 
 ## 10. 与原有代码的隔离
 
 - 此模块不修改 `face_pipeline.py`、`face_register_`、`head_detection_` 的任何逻辑
-- 使用独立的模型实例和配置命名空间
+- 复用 `face_pipeline` 的模型实例，使用独立的配置命名空间

@@ -115,7 +115,7 @@ HTTP POST (JSON with base64 image)
 - **`json.loads(json_data['faceFeature'])` parsing**: If client sends malformed feature string, will raise exception (caught by try/except)
 - **`os.popen` in `/version/`**: Uses `pgrep -c gunicorn` (subprocess call on every request); acceptable for health checks but not for high-frequency polling.
 - **Logging includes raw `imgData`** in warnings: Base64 image data in logs causes massive log file sizes
-- **`/dark_bg_check` loads two independent ONNX models** (ImgQuality + YOLO): Additional GPU memory; total 5 models loaded at startup
+- **`/dark_bg_check` reuses `face_pipeline` models**: No additional ONNX sessions; same GPU memory footprint as registration/detection endpoints
 
 ### Side Effect Warnings
 

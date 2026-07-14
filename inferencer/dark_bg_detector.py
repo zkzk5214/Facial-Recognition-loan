@@ -1,16 +1,8 @@
-import os
-import sys
 import cv2
 import yaml
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from inferencer.image_quality import ImgQuality
-from inferencer.face_detector import Detector
-from inferencer.face_pipeline import StatusCode
-
-RESOURCE_PATH = './resources/'
+from inferencer.face_pipeline import quality_detector, face_detector, StatusCode
 
 with open('./config.yaml', 'r') as f:
     _config = yaml.safe_load(f)
@@ -25,21 +17,6 @@ _patch_ratio_thresh = float(_dark_bg_cfg.get('patch_ratio_thresh', 0.03))
 _spot_ratio_thresh = float(_dark_bg_cfg.get('spot_ratio_thresh', 0.10))
 _bbox_expand_ratio = float(_dark_bg_cfg.get('bbox_expand_ratio', 0.0))
 _bbox_expand_up_ratio = float(_dark_bg_cfg.get('bbox_expand_up_ratio', 0.1))
-
-_quality_detector = None
-_face_detector = None
-
-
-def _init():
-    global _quality_detector, _face_detector
-    if _quality_detector is None:
-        _quality_detector = ImgQuality(
-            os.path.join(RESOURCE_PATH, 'weights-finetune-1-40--A.onnx'))
-    if _face_detector is None:
-        _face_detector = Detector(
-            weights=os.path.join(RESOURCE_PATH, 'arcface_weights_best_new.onnx'),
-            sp=os.path.join(RESOURCE_PATH, 'shape_predictor_68_face_landmarks.dat'))
-
 
 def classify_bright_regions(gray, mask, bright_thresh, min_patch_area):
     bg_only = gray.copy()
@@ -110,9 +87,7 @@ def detect_bg_darkness(img_bgr, face_bbox):
 
 
 def dark_bg_check(img_bgr):
-    _init()
-
-    scores = _quality_detector.detect(img_bgr)
+    scores = quality_detector.detect(img_bgr)
     dark_score = float(scores[2])
 
     # Stage 1: model check
@@ -121,7 +96,7 @@ def dark_bg_check(img_bgr):
         return False, 100, dark_score, 0.0, 0.0, 0.0, 0.0
 
     # Stage 2: CV background check
-    face_bboxes = _face_detector.get_face_bboxes(img_bgr)
+    face_bboxes = face_detector.get_face_bboxes(img_bgr)
     if not face_bboxes:
         return False, StatusCode.NOFACE.value, dark_score, 0.0, 0.0, 0.0, 0.0
 

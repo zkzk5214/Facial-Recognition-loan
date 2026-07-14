@@ -8,9 +8,8 @@
 - Stage 1: Model inference via `ImgQuality` (class 2 score ≥ `model_threshold`)
 - Stage 2: Connected components analysis on background pixels — separates small specular spots (`spot_ratio`) from large bright patches (`patch_ratio`) by area threshold
 - Unified `dark_bg_check()` function returning boolean result with debug scores
-- Lazy initialization of independent model instances (not shared with `face_pipeline`)
+- Shared model instances from `face_pipeline` (no duplicate ONNX sessions)
 - Configuration-driven thresholds via `config.yaml` (`dark_bg.*`)
-- Standalone self-test via `if __name__ == '__main__'` (uses `sys.path` injection to resolve package imports)
 
 ---
 
@@ -23,13 +22,10 @@
 | `cv2` (OpenCV) | Grayscale conversion (BGR2GRAY), image analysis |
 | `numpy` | Array operations, mask creation, pixel statistics |
 | `yaml` | Load `dark_bg.*` configuration from `config.yaml` |
-| `inferencer.image_quality.ImgQuality` | Stage 1 ONNX model inference (independent instance) |
-| `inferencer.face_detector.Detector` | Stage 2 face bounding box detection (independent instance, `get_face_bboxes` only) |
-| `inferencer.face_pipeline.StatusCode` | `StatusCode.NOFACE` (300) for no-face response |
+| `inferencer.face_pipeline` | `quality_detector` (Stage 1 ONNX model), `face_detector` (Stage 2 face bbox), `StatusCode.NOFACE` |
 
 ### Design Patterns Applied
 
-- **Lazy Initialization**: `_init()` singleton-pattern — models are loaded once on first call, not at module import time
 - **Pipeline Pattern**: Sequential two-stage processing with early exits at each stage
 - **Configuration Externalization**: All thresholds loaded from `config.yaml` (`dark_bg.*` namespace)
 
@@ -38,11 +34,11 @@
 ```
 Input (np.ndarray BGR image)
     │
-    ├─ Stage 1: _quality_detector.detect(img) → 4-class scores
+    ├─ Stage 1: quality_detector.detect(img) → 4-class scores
     │     ├─ argmax ≠ 2 or dark_score < 0.95 → return (False, 100, dark_score, 0.0, 0.0, 0.0, 0.0)
     │     └─ pass → proceed to Stage 2
     │
-    └─ Stage 2: _face_detector.get_face_bboxes(img)
+    └─ Stage 2: face_detector.get_face_bboxes(img)
           ├─ no faces → return (False, 300, dark_score, 0.0, 0.0, 0.0, 0.0)
           └─ has faces → detect_bg_darkness(img, face_bbox)
                 ├─ bg_pixels == 0 → return (False, -1.0, 0.0, 0.0, 0.0) [sentinel: no bg → fallback to Stage1]
@@ -58,17 +54,6 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, dk_ratio: float, s
 ---
 
 ## 3. Core Components Deep Dive
-
-### `_init()`
-
-| Item | Detail |
-|------|--------|
-| **Purpose** | Lazily initialize independent `ImgQuality` and `Detector` instances |
-| **Parameters** | None |
-| **Return** | None (sets module globals `_quality_detector`, `_face_detector`) |
-| **Core Logic** | Checks if instances are `None`; if so, creates `ImgQuality` with `weights-finetune-1-40--A.onnx` and `Detector` with YOLO model + dlib landmark file. Does NOT use `face_pipeline` module-level singletons |
-
----
 
 ### `classify_bright_regions(gray, mask, bright_thresh, min_patch_area)`
 
@@ -108,8 +93,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, dk_ratio: float, s
 
 ### Preconditions
 
-- `weights-finetune-1-40--A.onnx` must exist at `./resources/` (for `ImgQuality`)
-- `arcface_weights_best_new.onnx` and `shape_predictor_68_face_landmarks.dat` must exist at `./resources/` (for `Detector`)
+- Model files loaded by `face_pipeline` (`weights-finetune-1-40--A.onnx`, `arcface_weights_best_new.onnx`, `shape_predictor_68_face_landmarks.dat`) must exist at `./resources/`
 - `config.yaml` must contain `dark_bg` section with all required keys (falls back to hardcoded defaults if missing or partial)
 - Input image must be BGR `np.ndarray` (uint8, 3 channels)
 
@@ -120,13 +104,11 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, dk_ratio: float, s
 | numpy `bool_` | `(bg_pixels < thresh).mean()` returns a `numpy.float64`, and the comparison `> _dark_ratio_thresh` yields a `numpy.bool_` which is not JSON-serializable. Explicitly cast with `bool()` before returning to the API layer (`server.py` uses `jsonify`). |
 | `min_patch_area` is resolution-dependent | Currently set to `500` px for 640×480 input; different resolutions may require tuning. A 2000×2000 image would need a proportionally larger threshold to avoid classifying moderate-sized features as "patches". |
 | Stage 1 model specificity | `weights-finetune-1-40--A.onnx` is an internal model; availability tied to this project |
-| dlib dependency | `Detector` instantiation loads dlib shape predictor even though `get_face_bboxes` does not use it; pure overhead for this module |
 | Single-face assumption | Stage 2 uses only the first detected face bbox; multiple faces are ignored |
-| Lazy init non-thread-safe | `_init()` is not thread-safe; concurrent first calls may create multiple instances |
 
 ### Side Effect Warnings
 
-- Model loading allocates GPU memory (if CUDA available) that persists for process lifetime
+- `face_pipeline` module import loads ONNX models into GPU memory (persists for process lifetime)
 - Module reads `config.yaml` at import time (file system I/O)
 - No writes to file system during inference
 
@@ -162,9 +144,7 @@ Output: (is_dark_bg: bool, resp_code: int, dark_score: float, dk_ratio: float, s
 
 ### Common Refactoring Pitfalls
 
-- **Sharing `face_pipeline` singletons**: `dark_bg_detector` intentionally creates independent instances; sharing would couple two unrelated modules
 - **Adding `/255` normalization to Stage 1**: The model expects raw `[0, 255]` float32 input; normalizing would break inference
-- **Removing lazy init**: Moving model loading to module import would slow down all server startup (even for calls that never use `/dark_bg_check`)
 - **Changing `StatusCode.NOFACE` import**: If the import is removed and 300 is hardcoded, it becomes decoupled from the project's status code convention
 
 ### Testing Recommendations
