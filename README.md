@@ -70,8 +70,10 @@ dark_bg:
   model_threshold: 0.95
   dark_pixel_thresh: 50
   dark_ratio_thresh: 0.75
-  bright_pixel_thresh: 150
-  bright_ratio_thresh: 0.1
+  bright_thresh: 80
+  min_patch_area: 200
+  patch_ratio_thresh: 0.03
+  spot_ratio_thresh: 0.10
   bbox_expand_ratio: 0.0
   bbox_expand_up_ratio: 0.1
 ```

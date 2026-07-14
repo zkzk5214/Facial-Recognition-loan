@@ -23,7 +23,7 @@
 └──────────┬───────────────────┘
            ▼
 ┌──────────────────────────────┐
-│  Stage 2: 背景暗像素占比       │
+│  Stage 2: 背景暗像素 + 连通域分析 │
 │                              │
 │  1. 获取人脸 bbox (YOLO)      │
 │     └─ 无人脸 → resp=300      │
@@ -32,17 +32,22 @@
 │     (上10%/其他0%)            │
 │                              │
 │  3. 背景区域 = 全图 - 扩展bbox │
-│     (脸部下方区域排除，避免衣物) │
-│     └─ 背景像素=0?            │
-│        → 返回 sentinel -1.0    │
-│           → 按 Stage1 结果输出  │
-│     └─ 暗像素占比 > 75%?      │
-│         AND 亮像素占比 < 10%? │
-│        ↓ 是 (is_dark_bg)      │
-│  计算 darkness_level:         │
-│    non_dark 平均灰度 → 评分    │
-│  输出: is_dark_bg, darkness   │
-│  输出: is_dark_bg             │
+     │     (脸部下方区域排除，避免衣物) │
+     │     └─ 背景像素=0?            │
+     │        → 返回 sentinel -1.0    │
+     │           → 按 Stage1 结果输出  │
+     │     └─ classify_bright_regions │
+     │        连通域分析：亮度 > bright_thresh  │
+     │        → 小光斑（面积 < min_patch_area） │
+     │        → 大面积亮区（≥ min_patch_area）  │
+     │     ↓ 三条件判定:            │
+     │     ① 暗像素占比 > dark_ratio_thresh   │
+     │     ② 大面积亮区占比 < patch_ratio_thresh │
+     │     ③ 小光斑占比 < spot_ratio_thresh   │
+     │     全部满足 → is_dark_bg=true       │
+     │  计算 darkness_level:         │
+     │    non_dark 平均灰度 → 评分    │
+     │  输出: is_dark_bg, darkness   │
 └──────────────────────────────┘
 
 最终判定:
@@ -73,12 +78,19 @@ is_dark_bg = (无人脸 → False, resp=300)
   - 上方向：扩展 10%
   - 左/右/下方向：扩展 0%
   - 扩展后将坐标 clip 到图片边界内（避免越界）
-- **步骤 3 - 暗像素统计**:
+- **步骤 3 - `classify_bright_regions` 连通域分析**:
   - 图像转灰度
   - 背景区域构造：mask 中全图=255，人脸 bbox 区域=0，脸部下方区域=0（排除衣物干扰）
-  - 背景区域（全图 — 扩展后的人脸 bbox — 脸部下方）中，亮度 < `dark_pixel_thresh` 的像素计为"暗像素"，亮度 > `bright_pixel_thresh` 的像素计为"亮像素"
+  - 背景区域中，亮度 < `dark_pixel_thresh` 的像素计为"暗像素"
+  - 亮度 > `bright_thresh` 的像素先做形态学开运算去噪，再做连通域分析：
+    - 面积 < `min_patch_area` 的连通域归为**小光斑**（spot，如反光点、噪点）
+    - 面积 ≥ `min_patch_area` 的连通域归为**大面积亮区**（patch，如玻璃、座椅、天空）
   - 若背景像素数为 0（人脸 bbox 覆盖全图）→ 无背景可判，返回 sentinel -1.0，`is_dark_bg` 按 Stage1 结果输出
-  - 若暗像素数 / 背景区域总像素数 > `dark_ratio_thresh` **且** 亮像素占比 < `bright_ratio_thresh`，判定为黑背景，并取背景中非暗区像素灰度均值取反乘 100，输出 `darkness_level`（0~100，越接近 100 越昏黑）
+  - **三条件同时满足**才判定为黑背景：
+    1. 暗像素占比 > `dark_ratio_thresh`
+    2. 大面积亮区占比 < `patch_ratio_thresh`（拦截白天车内玻璃/灰座椅场景）
+    3. 小光斑占比 < `spot_ratio_thresh`（容忍夜间反光点）
+  - 判定黑背景后，取背景中非暗区像素灰度均值取反，输出 `darkness_level`（0~1，值越大越昏黑）
 - **作用**: 精确检查——确认「画面暗」不是因为「人脸本身暗」（如肤色深、逆光人脸），而是因为「背景区域黑」
 
 ### 判定逻辑总结
@@ -101,8 +113,10 @@ else:
 | `dark_bg.model_threshold` | 0.95 | Stage1 模型 class 2 最低置信度 |
 | `dark_bg.dark_pixel_thresh` | 50 | 灰度值阈值 (0-255)，低于此值视为暗像素 |
 | `dark_bg.dark_ratio_thresh` | 0.75 | 背景暗像素占比阈值 |
-| `dark_bg.bright_pixel_thresh` | 150 | 灰度值阈值 (0-255)，高于此值视为亮像素 |
-| `dark_bg.bright_ratio_thresh` | 0.1 | 背景亮像素占比阈值，超过此值即触发 bright-clear |
+| `dark_bg.bright_thresh` | 80 | 灰度值阈值 (0-255)，高于此值视为亮像素，用于连通域分析 |
+| `dark_bg.min_patch_area` | 200 | 连通域最小面积 (px)，用于区分 patch 和 spot |
+| `dark_bg.patch_ratio_thresh` | 0.03 | 大面积亮区域（≥ min_patch_area）占背景比例上限，超过则排除黑背景 |
+| `dark_bg.spot_ratio_thresh` | 0.10 | 小光斑（< min_patch_area）占背景比例上限，超过则排除黑背景 |
 | `dark_bg.bbox_expand_ratio` | 0.0 | 人脸 bbox 左/右/下方向扩展比例 |
 | `dark_bg.bbox_expand_up_ratio` | 0.1 | 人脸 bbox 上方向扩展比例 |
 
@@ -121,6 +135,18 @@ else:
 
 **响应:**
 
+```json
+{
+  "recordID": "test-20250424test",
+  "sessionID": "test-HJ5Loo5546xxxxxx",
+  "msgID": "test-hshgsuhguhbjh2356vjijh",
+  "resp_code": 100,
+  "is_dark_bg": true,
+  "dark_score": 0.8542,
+  "bg_ratio": 0.9580
+}
+```
+
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `recordID` | string | 回显 |
@@ -128,10 +154,8 @@ else:
 | `msgID` | string | 回显 |
 | `resp_code` | int | 100=检测正常完成, 300=无人脸, 999=服务异常 |
 | `is_dark_bg` | bool | 是否黑背景 |
-| `dark_score` | float | Stage1 模型 class 2 的得分 |
-| `dk_ratio` | float | Stage2 背景暗像素占比 |
-| `br_ratio` | float | Stage2 背景亮像素占比 |
-| `darkness_level` | float | 图片昏暗评分（仅 is_dark_bg=true 时有意义），基于背景非暗区灰度均值，0~100，值越大越昏黑 |
+| `dark_score` | float | 图片昏暗评分（即 darkness_level，0~1，保留 4 位小数），仅 `is_dark_bg=true` 时有意义。基于背景非暗区灰度均值取反计算，值越大越昏黑 |
+| `bg_ratio` | float | 背景区域暗像素（灰度 < dark_pixel_thresh）占比（0~1，保留 4 位小数） |
 
 ## 6. 边界情况处理
 

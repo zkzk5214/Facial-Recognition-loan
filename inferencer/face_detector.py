@@ -45,13 +45,15 @@ def complete_face(face_dict):
     """
     Check if the detected components (eyes and mouth) are within the detected face bounding box
     and do not intersect with each other.
+    person(0), left_eye(1), right_eye(2), mouth(3)
     """
     results = []
+    # Combine all eyes from both left and right eye detections
     all_eyes = face_dict[1] + face_dict[2]
     for face in face_dict[0]:
         eye = check_in_face(all_eyes, face)
         eye = del_dup(eye)
-
+        # Check if the mouth is within the face bounding box
         mouth = check_in_face(face_dict[3], face)
         if len(mouth) >= 2:
             mouth = del_dup(mouth)
@@ -86,7 +88,8 @@ class Detector:
 
         if res.size == 0:
             return [], []
-
+        
+        # Filter out only the face detections (class 0)
         faces = res[res[:, 5] == 0]
         if len(faces) == 0:
             return [], []
