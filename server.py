@@ -201,7 +201,7 @@ def dark_bg_check_endpoint():
     except Exception as e:
         logger.error("[Traceback]:" + str(traceback.format_exc()).replace('\n', ' \t'))
         logger.error('\t'.join(['[ExceptionTriggered]: /dark_bg_check', str(e), '#\n']))
-        return jsonify({'resp_code': StatusCode.ERROR.value, 'error_msg': str(e)})
+        return jsonify({'resp_code': StatusCode.ERROR.value, 'error_msg': str(e), 'is_dark_bg': False})
 
 
 @app.route('/version/', methods=['GET'])

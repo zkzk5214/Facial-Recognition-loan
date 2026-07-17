@@ -18,6 +18,13 @@ _spot_ratio_thresh = float(_dark_bg_cfg.get('spot_ratio_thresh', 0.10))
 _bbox_expand_ratio = float(_dark_bg_cfg.get('bbox_expand_ratio', 0.0))
 _bbox_expand_up_ratio = float(_dark_bg_cfg.get('bbox_expand_up_ratio', 0.1))
 
+def preprocess_image(img):
+    if img.shape[0] > 2400:
+        resize_high, resize_width = 2400, int(img.shape[1] * 2400 / img.shape[0])
+        return cv2.resize(img, (resize_width, resize_high))
+    return img
+
+
 def classify_bright_regions(gray, mask, bright_thresh, min_patch_area):
     bg_only = gray.copy()
     bg_only[mask != 255] = 0
@@ -87,6 +94,7 @@ def detect_bg_darkness(img_bgr, face_bbox):
 
 
 def dark_bg_check(img_bgr):
+    img_bgr = preprocess_image(img_bgr)
     scores = quality_detector.detect(img_bgr)
     dark_score = float(scores[2])
 
