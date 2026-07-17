@@ -2,8 +2,8 @@ import cv2
 import yaml
 import numpy as np
 
-from inferencer.face_pipeline import face_detector, StatusCode
-from inferencer.image_quality import ImgQuality
+from inferencer.face_pipeline import face_detector, StatusCode, quality_detector
+# from inferencer.image_quality import ImgQuality
 
 with open('./config.yaml', 'r') as f:
     _config = yaml.safe_load(f)
@@ -19,7 +19,7 @@ _spot_ratio_thresh = float(_dark_bg_cfg.get('spot_ratio_thresh', 0.10))
 _bbox_expand_ratio = float(_dark_bg_cfg.get('bbox_expand_ratio', 0.0))
 _bbox_expand_up_ratio = float(_dark_bg_cfg.get('bbox_expand_up_ratio', 0.1))
 
-dark_bg_quality_detector = ImgQuality('./resources/weights-finetune-1-40--A.onnx')
+# dark_bg_quality_detector = ImgQuality('./resources/weights-finetune-1-40--A.onnx')
 
 
 def preprocess_image(img):
@@ -99,7 +99,7 @@ def detect_bg_darkness(img_bgr, face_bbox):
 
 def dark_bg_check(img_bgr):
     img_bgr = preprocess_image(img_bgr)
-    scores = dark_bg_quality_detector.detect(img_bgr)
+    scores = quality_detector.detect(img_bgr)
     dark_score = float(scores[2])
 
     # Stage 1: model check
