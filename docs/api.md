@@ -373,7 +373,7 @@ GET /version/
 - 遇到 `resp_code = 999` 或网络错误时可重试，但建议间隔 1s 以上。
 
 ### 并发
-- Gunicorn Worker 数量：dev=2, stg=4, pro=6。请根据环境合理控制并发请求数。
+- Gunicorn Worker 数量：dev=2, stg=4, pro=4。请根据环境合理控制并发请求数。
 
 ### msg 字段
 - `/head_detection` 的 `msg` 字段可直接展示给用户，用于引导用户调整拍摄姿势。
