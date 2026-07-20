@@ -230,14 +230,61 @@ Content-Type: application/json
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `is_dark_bg` | Boolean | **是否为暗背景**。`true` = 背景过暗，建议提醒用户换到明亮处；`false` = 背景正常 |
-| `dark_score` | Float | 图片昏暗程度评分（0~1，保留 4 位小数），越高越暗。仅当 `is_dark_bg=true` 时有意义，基于背景非暗区的灰度均值取反计算 |
+| `dark_score` | Float | 最终背景昏暗程度评分（0~1，保留 4 位小数），越高越暗。仅当 `is_dark_bg=true` 时有意义，基于背景非暗区的灰度均值取反计算；该字段不是 Stage 1 模型置信度 |
 | `bg_ratio` | Float | 背景区域中暗像素（灰度 < 30）的占比（0~1，保留 4 位小数） |
+
+#### 正常非暗背景响应（resp_code = 100）
+
+若 Stage 1 模型认为图片不是暗场景，将不再执行人脸检测和 Stage 2 分析，直接返回：
+
+```json
+{
+  "recordID": "test-20250424test",
+  "sessionID": "test-HJ5Loo5546xxxxxx",
+  "msgID": "test-hshgsuhguhbjh2356vjijh",
+  "resp_code": 100,
+  "is_dark_bg": false,
+  "dark_score": 0.0,
+  "bg_ratio": 0.0
+}
+```
+
+#### 未检测到人脸响应（resp_code = 300）
+
+仅当 Stage 1 模型判定为暗场景、但 Stage 2 未检测到人脸时返回 `300`：
+
+```json
+{
+  "recordID": "test-20250424test",
+  "sessionID": "test-HJ5Loo5546xxxxxx",
+  "msgID": "test-hshgsuhguhbjh2356vjijh",
+  "resp_code": 300,
+  "is_dark_bg": false,
+  "dark_score": 0.0,
+  "bg_ratio": 0.0
+}
+```
+
+#### 服务异常响应（resp_code = 999）
+
+请求字段缺失、图片 Base64 无效、图片解码失败或服务内部处理异常时返回：
+
+```json
+{
+  "resp_code": 999,
+  "error_msg": "异常描述",
+  "is_dark_bg": false
+}
+```
+
+异常响应不保证包含 `recordID`、`sessionID`、`msgID`、`dark_score` 和 `bg_ratio`。
 
 #### 检测逻辑说明
 
 检测分两阶段：
-1. **模型判断**（Stage 1）：用深度学习模型判断整体画面是否为暗场景。若模型认为非暗场景，直接返回 `false`。
-2. **CV 连通域分析**（Stage 2）：若模型判定为暗场景，从图片中定位人脸区域，对背景像素做连通域分析——将灰度 > 60 的像素按面积分为两类：大面积连通域（≥500px，如玻璃、座椅）和小光斑（<500px，如反光点）。需同时满足**三个条件**才最终判定为暗背景：① 暗像素占比 > 90% ② 大面积亮区域占比 < 2%（拦截白天车内玻璃/灰座椅场景）③ 小光斑占比 < 10%（容忍夜间反光点）。通过后再基于背景非暗区灰度均值计算 `dark_score`。
+
+1. **模型判断**（Stage 1）：用深度学习模型判断整体画面是否为暗场景。若模型认为非暗场景，直接返回 `resp_code=100, is_dark_bg=false`，不执行人脸检测。
+2. **CV 连通域分析**（Stage 2）：若模型判定为暗场景，先定位人脸；未检测到人脸时返回 `resp_code=300, is_dark_bg=false`。检测到人脸后，对背景像素做连通域分析——将灰度 > 60 的像素按面积分为两类：大面积连通域（≥500px，如玻璃、座椅）和小光斑（<500px，如反光点）。需同时满足**三个条件**才最终判定为暗背景：① 暗像素占比 > 90% ② 大面积亮区域占比 < 2%（拦截白天车内玻璃/灰座椅场景）③ 小光斑占比 < 10%（容忍夜间反光点）。通过后再基于背景非暗区灰度均值计算 `dark_score`。
 
 ---
 
